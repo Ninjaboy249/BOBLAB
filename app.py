@@ -11,6 +11,32 @@ from datetime import datetime
 
 st.set_page_config(page_title="Football MatchLens by Regression", page_icon="⚽", layout="wide")
 
+# Country flag emojis mapping
+COUNTRY_FLAGS = {
+    "Argentina": "🇦🇷", "Australia": "🇦🇺", "Austria": "🇦🇹", "Belgium": "🇧🇪",
+    "Brazil": "🇧🇷", "Cameroon": "🇨🇲", "Canada": "🇨🇦", "Chile": "🇨🇱",
+    "Colombia": "🇨🇴", "Costa Rica": "🇨🇷", "Croatia": "🇭🇷", "Czech Republic": "🇨🇿",
+    "Denmark": "🇩🇰", "Ecuador": "🇪🇨", "Egypt": "🇪🇬", "England": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+    "France": "🇫🇷", "Germany": "🇩🇪", "Ghana": "🇬🇭", "Greece": "🇬🇷",
+    "Honduras": "🇭🇳", "Iran": "🇮🇷", "Italy": "🇮🇹", "Ivory Coast": "🇨🇮",
+    "Japan": "🇯🇵", "Mexico": "🇲🇽", "Morocco": "🇲🇦", "Netherlands": "🇳🇱",
+    "New Zealand": "🇳🇿", "Nigeria": "🇳🇬", "Norway": "🇳🇴", "Paraguay": "🇵🇾",
+    "Peru": "🇵🇪", "Poland": "🇵🇱", "Portugal": "🇵🇹", "Republic of Ireland": "🇮🇪",
+    "Romania": "🇷🇴", "Russia": "🇷🇺", "Saudi Arabia": "🇸🇦", "Senegal": "🇸🇳",
+    "Serbia": "🇷🇸", "Slovakia": "🇸🇰", "Slovenia": "🇸🇮", "South Africa": "🇿🇦",
+    "South Korea": "🇰🇷", "Spain": "🇪🇸", "Sweden": "🇸🇪", "Switzerland": "🇨🇭",
+    "Tunisia": "🇹🇳", "Turkey": "🇹🇷", "Ukraine": "🇺🇦", "United States": "🇺🇸",
+    "Uruguay": "🇺🇾", "Wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿", "Algeria": "🇩🇿", "Bosnia-Herzegovina": "🇧🇦",
+    "Bulgaria": "🇧🇬", "China PR": "🇨🇳", "Cuba": "🇨🇺", "Hungary": "🇭🇺",
+    "Iceland": "🇮🇸", "India": "🇮🇳", "Indonesia": "🇮🇩", "Iraq": "🇮🇶",
+    "Israel": "🇮🇱", "Jamaica": "🇯🇲", "North Korea": "🇰🇵", "Scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+    "Thailand": "🇹🇭", "Trinidad and Tobago": "🇹🇹", "Venezuela": "🇻🇪", "Vietnam": "🇻🇳"
+}
+
+def get_flag(country_name):
+    """Get flag emoji for a country, return ⚽ if not found"""
+    return COUNTRY_FLAGS.get(country_name, "⚽")
+
 APP_DIR = Path(__file__).parent
 BACKGROUND_IMAGE = APP_DIR / "assets" / "match-background.png"
 API_FOOTBALL_KEY = "d880613d58e1625c7db1e0fb6a2060bc"
@@ -1318,11 +1344,11 @@ with st.expander("⚽ Analyze Live Match", expanded=False):
     live_match_col1, live_match_col2 = st.columns(2)
     
     with live_match_col1:
-        live_team_a = st.selectbox("Team A", team_names, key="live_team_a")
+        live_team_a = st.selectbox("Team A", team_names, key="live_team_a", format_func=lambda x: f"{get_flag(x)} {x}")
         live_score_a = st.number_input("Team A Score", min_value=0, max_value=20, value=1, key="live_score_a")
     
     with live_match_col2:
-        live_team_b = st.selectbox("Team B", team_names, key="live_team_b")
+        live_team_b = st.selectbox("Team B", team_names, key="live_team_b", format_func=lambda x: f"{get_flag(x)} {x}")
         live_score_b = st.number_input("Team B Score", min_value=0, max_value=20, value=0, key="live_score_b")
     
     live_elapsed = st.slider("Match Time (minutes)", min_value=0, max_value=90, value=67, step=1)
@@ -1417,19 +1443,172 @@ with col1:
     team_a = st.selectbox(
         "Team A", team_names,
         index=team_names.index("Brazil") if "Brazil" in team_names else 0,
+        format_func=lambda x: f"{get_flag(x)} {x}"
     )
 with col2:
     team_b = st.selectbox(
         "Team B", team_names,
         index=team_names.index("Argentina") if "Argentina" in team_names else 1,
+        format_func=lambda x: f"{get_flag(x)} {x}"
     )
 
 neutral = st.checkbox("Neutral venue", value=True)
 major = st.checkbox("Major tournament (e.g. World Cup)", value=True)
 
-# What-If Simulator Section
+# What-If Simulator Section - Simplified Interface
+st.markdown("---")
 st.subheader("🎯 What-If Simulator")
-st.caption("Adjust team statistics to see how probabilities change in real-time")
+st.caption("Adjust sliders to see how probabilities change in real-time")
+
+# Get baseline stats
+if team_a != team_b and team_a in team_stats and team_b in team_stats:
+    baseline_a = team_stats[team_a]
+    baseline_b = team_stats[team_b]
+    
+    # Create two columns for team adjustments
+    sim_col1, sim_col2 = st.columns(2)
+    
+    with sim_col1:
+        st.markdown(f"### {get_flag(team_a)} {team_a}")
+        
+        # Recent Form (0-100 scale for user-friendliness)
+        team_a_form_pct = st.slider(
+            "Recent Form",
+            min_value=0,
+            max_value=100,
+            value=int(baseline_a["recent_form"] * 100),
+            step=1,
+            help="Team's recent performance (0 = poor, 100 = excellent)",
+            key="team_a_form"
+        )
+        team_a_form = team_a_form_pct / 100.0
+        
+        # Goals Scored (0-5 scale)
+        team_a_goals = st.slider(
+            "Goals Scored (avg per match)",
+            min_value=0.0,
+            max_value=5.0,
+            value=min(max(baseline_a["goal_avg"], 0.0), 5.0),
+            step=0.1,
+            help="Average goals scored per match",
+            key="team_a_goals"
+        )
+    
+    with sim_col2:
+        st.markdown(f"### {get_flag(team_b)} {team_b}")
+        
+        # Recent Form (0-100 scale)
+        team_b_form_pct = st.slider(
+            "Recent Form",
+            min_value=0,
+            max_value=100,
+            value=int(baseline_b["recent_form"] * 100),
+            step=1,
+            help="Team's recent performance (0 = poor, 100 = excellent)",
+            key="team_b_form"
+        )
+        team_b_form = team_b_form_pct / 100.0
+        
+        # Goals Scored (0-5 scale)
+        team_b_goals = st.slider(
+            "Goals Scored (avg per match)",
+            min_value=0.0,
+            max_value=5.0,
+            value=min(max(baseline_b["goal_avg"], 0.0), 5.0),
+            step=0.1,
+            help="Average goals scored per match",
+            key="team_b_goals"
+        )
+    
+    # Neutral Venue checkbox
+    neutral_sim = st.checkbox("☑ Neutral Venue", value=neutral, key="neutral_whatif")
+    
+    # Calculate live probabilities
+    a_sim = baseline_a.copy()
+    b_sim = baseline_b.copy()
+    a_sim["recent_form"] = team_a_form
+    a_sim["goal_avg"] = team_a_goals
+    b_sim["recent_form"] = team_b_form
+    b_sim["goal_avg"] = team_b_goals
+    
+    sim_row = pd.DataFrame([{
+        "team_a_winrate": a_sim["winrate"],
+        "team_b_winrate": b_sim["winrate"],
+        "team_a_goal_avg": a_sim["goal_avg"],
+        "team_b_goal_avg": b_sim["goal_avg"],
+        "team_a_recent_form": a_sim["recent_form"],
+        "team_b_recent_form": b_sim["recent_form"],
+        "is_neutral": int(neutral_sim),
+        "is_major_tournament": int(major),
+    }])[feature_cols]
+    
+    sim_proba = model.predict_proba(sim_row)[0]
+    sim_p_a, sim_p_draw, sim_p_b = float(sim_proba[0]), float(sim_proba[1]), float(sim_proba[2])
+    
+    # Get baseline probabilities for comparison
+    row_baseline, _, _ = build_match_row(team_a, team_b, neutral, major)
+    proba_baseline = model.predict_proba(row_baseline)[0]
+    p_a_base, p_draw_base, p_b_base = float(proba_baseline[0]), float(proba_baseline[1]), float(proba_baseline[2])
+    
+    # Display live probabilities with deltas
+    st.markdown("### 📊 Live Probabilities")
+    prob_col1, prob_col2, prob_col3 = st.columns(3)
+    
+    with prob_col1:
+        delta_a = (sim_p_a - p_a_base) * 100
+        st.metric(
+            f"{get_flag(team_a)} {team_a} win",
+            f"{sim_p_a*100:.1f}%",
+            delta=f"{delta_a:+.1f}%",
+            delta_color="normal"
+        )
+    
+    with prob_col2:
+        delta_draw = (sim_p_draw - p_draw_base) * 100
+        st.metric(
+            "Draw",
+            f"{sim_p_draw*100:.1f}%",
+            delta=f"{delta_draw:+.1f}%",
+            delta_color="off"
+        )
+    
+    with prob_col3:
+        delta_b = (sim_p_b - p_b_base) * 100
+        st.metric(
+            f"{get_flag(team_b)} {team_b} win",
+            f"{sim_p_b*100:.1f}%",
+            delta=f"{delta_b:+.1f}%",
+            delta_color="normal"
+        )
+    
+    # Show example scenario if there's a significant change
+    if abs(delta_a) > 5 or abs(delta_b) > 5:
+        if delta_a > 5:
+            st.success(
+                f"**Example:** If {team_a} improves recent form from {baseline_a['recent_form']*100:.0f}% → {team_a_form*100:.0f}%, "
+                f"their win probability increases: {p_a_base*100:.1f}% → {sim_p_a*100:.1f}%"
+            )
+        elif delta_b > 5:
+            st.success(
+                f"**Example:** If {team_b} improves recent form from {baseline_b['recent_form']*100:.0f}% → {team_b_form*100:.0f}%, "
+                f"their win probability increases: {p_b_base*100:.1f}% → {sim_p_b*100:.1f}%"
+            )
+        elif delta_a < -5:
+            st.warning(
+                f"**Example:** With {team_a}'s form at {team_a_form*100:.0f}% (down from {baseline_a['recent_form']*100:.0f}%), "
+                f"their win probability decreases: {p_a_base*100:.1f}% → {sim_p_a*100:.1f}%"
+            )
+        elif delta_b < -5:
+            st.warning(
+                f"**Example:** With {team_b}'s form at {team_b_form*100:.0f}% (down from {baseline_b['recent_form']*100:.0f}%), "
+                f"their win probability decreases: {p_b_base*100:.1f}% → {sim_p_b*100:.1f}%"
+            )
+
+st.markdown("---")
+
+# Advanced What-If Simulator (in expander)
+with st.expander("⚙️ Advanced Simulator Settings", expanded=False):
+    st.caption("Fine-tune additional team statistics")
 
 with st.expander("⚙️ Adjust Team Statistics", expanded=False):
     sim_col1, sim_col2 = st.columns(2)
