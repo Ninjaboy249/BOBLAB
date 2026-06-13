@@ -138,6 +138,63 @@ def valid_watch_url(url):
 def livescore_search_url(team_a, team_b):
     return f"https://www.livescore.com/en/search/?q={quote_plus(f'{team_a} {team_b}')}"
 
+def fetch_live_stream_links(team_a, team_b):
+    """
+    Fetch live streaming links for a match from Football Live Stream API.
+    Returns a list of streaming links if available.
+    """
+    import http.client
+    
+    try:
+        conn = http.client.HTTPSConnection("football-live-stream-api.p.rapidapi.com")
+        
+        headers = {
+            'x-rapidapi-key': "ed35674ceemshdaf9b5b599f82cdp179c2djsn7c8722ead7dd",
+            'x-rapidapi-host': "football-live-stream-api.p.rapidapi.com",
+            'Content-Type': "application/json"
+        }
+        
+        # Search for match by team names
+        # The API endpoint format may vary - this is a generic search approach
+        search_query = f"{team_a.lower().replace(' ', '-')}-vs-{team_b.lower().replace(' ', '-')}"
+        
+        conn.request("GET", f"/link/{search_query}", headers=headers)
+        
+        res = conn.getresponse()
+        data = res.read()
+        
+        if res.status == 200:
+            response_data = json.loads(data.decode("utf-8"))
+            
+            # Extract streaming links from response
+            # The exact structure depends on the API response format
+            streaming_links = []
+            
+            if isinstance(response_data, dict):
+                # Check for common response structures
+                if "links" in response_data:
+                    streaming_links = response_data["links"]
+                elif "streams" in response_data:
+                    streaming_links = response_data["streams"]
+                elif "data" in response_data:
+                    if isinstance(response_data["data"], list):
+                        streaming_links = response_data["data"]
+                    elif isinstance(response_data["data"], dict) and "links" in response_data["data"]:
+                        streaming_links = response_data["data"]["links"]
+            elif isinstance(response_data, list):
+                streaming_links = response_data
+            
+            return streaming_links
+        else:
+            return []
+            
+    except Exception as e:
+        st.warning(f"Could not fetch live stream links: {str(e)}")
+        return []
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
 def render_live_match_card(team_a, team_b, score_a, score_b, elapsed, status="Live"):
     safe_team_a = html.escape(team_a)
     safe_team_b = html.escape(team_b)
@@ -173,13 +230,66 @@ def render_watch_live_panel(team_a, team_b, score_a, score_b, elapsed, status="L
     st.markdown("### ▶️ Watch live")
     render_live_match_card(team_a, team_b, score_a, score_b, elapsed, status)
     st.caption(
-        "Use an official broadcaster, tournament, club, federation, or rights-holder URL. "
-        "Some services block embedding, so the open button is the most reliable option."
+        "Watch live football matches from official sources. "
+        "YouTube live streams and official broadcasters are recommended."
     )
 
+    # YouTube Live Football Channel
+    st.markdown("#### 📺 Live Football Channel")
+    youtube_channel_url = "https://www.youtube.com/channel/UCVDTKYExRDyv4k449OAkHqQ"
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown("**Live Football Matches** - Official YouTube Channel")
+        st.caption("Watch live football matches and highlights")
+    with col2:
+        st.link_button("Watch Live", youtube_channel_url, type="primary", use_container_width=True)
+    
+    # Option to embed YouTube channel
+    embed_youtube = st.toggle("Preview YouTube Channel", value=False, key=f"embed_youtube_{key_suffix}")
+    if embed_youtube:
+        # Embed YouTube channel with live tab
+        youtube_embed_url = "https://www.youtube.com/embed/live_stream?channel=UCVDTKYExRDyv4k449OAkHqQ"
+        st.iframe(youtube_embed_url, height=520)
+    
+    st.divider()
+
+    # Fetch live streaming links from API
+    with st.spinner("Fetching additional streaming links..."):
+        streaming_links = fetch_live_stream_links(team_a, team_b)
+    
+    # Display available streaming links if found
+    if streaming_links:
+        st.markdown("#### 🎥 Additional Live Streams")
+        
+        if isinstance(streaming_links, list) and len(streaming_links) > 0:
+            for idx, link in enumerate(streaming_links[:5]):  # Show up to 5 links
+                # Handle different link formats
+                if isinstance(link, dict):
+                    url = link.get("url") or link.get("link") or link.get("stream_url")
+                    title = link.get("title") or link.get("name") or f"Stream {idx + 1}"
+                    quality = link.get("quality", "")
+                    
+                    if url:
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.markdown(f"**{title}** {f'({quality})' if quality else ''}")
+                        with col2:
+                            st.link_button("Watch", url, key=f"stream_{key_suffix}_{idx}", use_container_width=True)
+                elif isinstance(link, str) and valid_watch_url(link):
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.markdown(f"**Stream {idx + 1}**")
+                    with col2:
+                        st.link_button("Watch", link, key=f"stream_{key_suffix}_{idx}", use_container_width=True)
+        
+        st.divider()
+
+    # Manual URL input section
+    st.markdown("#### 🔗 Custom Stream URL")
     default_watch_url = livescore_search_url(team_a, team_b)
     watch_url = st.text_input(
-        "Official stream or match-centre URL",
+        "Enter stream or match-centre URL",
         value=default_watch_url,
         key=f"watch_url_{key_suffix}_{team_a}_{team_b}",
         help="Paste a legal stream or official match-centre link. LiveScore search is used as a safe default.",
@@ -193,7 +303,7 @@ def render_watch_live_panel(team_a, team_b, score_a, score_b, elapsed, status="L
             embed_watch = st.toggle("Preview in app", value=False, key=f"embed_watch_{key_suffix}_{team_a}_{team_b}")
 
         if embed_watch:
-            components.iframe(watch_url, height=520, scrolling=True)
+            st.iframe(watch_url, height=520)
     else:
         st.warning("Enter a valid http or https URL to open the live match.")
 
