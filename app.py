@@ -138,6 +138,54 @@ def valid_watch_url(url):
 def livescore_search_url(team_a, team_b):
     return f"https://www.livescore.com/en/search/?q={quote_plus(f'{team_a} {team_b}')}"
 
+def fetch_youtube_live_streams():
+    """
+    Fetch current live streams from YouTube channel using YouTube Data API.
+    Returns a list of live stream video information.
+    """
+    try:
+        # YouTube Data API configuration
+        api_url = "https://www.googleapis.com/youtube/v3/search"
+        params = {
+            "part": "snippet",
+            "channelId": "UCq76UGP4qwRgumMbGev4lGw",
+            "type": "video",
+            "eventType": "live",
+            "key": "AIzaSyChs54W74UAkIseg4xK2lCHO9YnBupoXkA",
+            "maxResults": 10
+        }
+        
+        response = requests.get(api_url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        live_streams = []
+        
+        if "items" in data and len(data["items"]) > 0:
+            for item in data["items"]:
+                video_id = item.get("id", {}).get("videoId")
+                snippet = item.get("snippet", {})
+                title = snippet.get("title", "Live Stream")
+                thumbnail = snippet.get("thumbnails", {}).get("medium", {}).get("url", "")
+                
+                if video_id:
+                    live_streams.append({
+                        "video_id": video_id,
+                        "title": title,
+                        "url": f"https://www.youtube.com/watch?v={video_id}",
+                        "embed_url": f"https://www.youtube.com/embed/{video_id}",
+                        "thumbnail": thumbnail
+                    })
+        
+        return live_streams
+        
+    except requests.RequestException as e:
+        st.warning(f"Could not fetch YouTube live streams: {str(e)}")
+        return []
+    except Exception as e:
+        st.warning(f"Error fetching live streams: {str(e)}")
+        return []
+
 def fetch_live_stream_links(team_a, team_b):
     """
     Fetch live streaming links for a match from Football Live Stream API.
@@ -230,26 +278,48 @@ def render_watch_live_panel(team_a, team_b, score_a, score_b, elapsed, status="L
     st.markdown("### ▶️ Watch live")
     render_live_match_card(team_a, team_b, score_a, score_b, elapsed, status)
     st.caption(
-        "Watch live football matches from official sources. "
-        "YouTube live streams and official broadcasters are recommended."
+        "Watch live football matches from official YouTube sources. "
+        "Current live streams are fetched automatically."
     )
 
-    # YouTube Live Football Streams
-    st.markdown("#### 📺 Live Football Streams")
-    youtube_streams_url = "https://www.youtube.com/@lfstreams/streams"
+    # Fetch YouTube Live Streams
+    st.markdown("#### 📺 Current Live Football Streams")
+    with st.spinner("Fetching live streams from YouTube..."):
+        youtube_live_streams = fetch_youtube_live_streams()
     
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.markdown("**LF Streams** - Live Football Matches")
-        st.caption("Watch live football matches and streams")
-    with col2:
-        st.link_button("Watch Live", youtube_streams_url, type="primary", use_container_width=True)
-    
-    # Option to embed YouTube streams page
-    embed_youtube = st.toggle("Preview YouTube Streams", value=False, key=f"embed_youtube_{key_suffix}")
-    if embed_youtube:
-        # Embed YouTube streams page
-        st.iframe(youtube_streams_url, height=520)
+    if youtube_live_streams:
+        st.success(f"Found {len(youtube_live_streams)} live stream(s)")
+        
+        for idx, stream in enumerate(youtube_live_streams):
+            col1, col2, col3 = st.columns([2, 2, 1])
+            
+            with col1:
+                st.markdown(f"**{stream['title']}**")
+                st.caption("🔴 Live Now")
+            
+            with col2:
+                # Show thumbnail if available
+                if stream.get('thumbnail'):
+                    st.image(stream['thumbnail'], width=120)
+            
+            with col3:
+                st.link_button("Watch", stream['url'], key=f"yt_stream_{key_suffix}_{idx}", use_container_width=True)
+            
+            # Option to embed this specific stream
+            if st.toggle(f"Preview Stream {idx + 1}", value=False, key=f"embed_stream_{key_suffix}_{idx}"):
+                st.iframe(stream['embed_url'], height=400)
+            
+            if idx < len(youtube_live_streams) - 1:
+                st.divider()
+    else:
+        st.info("No live streams currently available. Check back later!")
+        # Fallback to channel streams page
+        youtube_streams_url = "https://www.youtube.com/@lfstreams/streams"
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("**LF Streams Channel** - Browse all streams")
+        with col2:
+            st.link_button("Visit Channel", youtube_streams_url, type="primary", use_container_width=True)
     
     st.divider()
 
