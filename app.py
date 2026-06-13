@@ -675,8 +675,15 @@ def create_momentum_timeline(team_a, team_b):
             year = int(str(match["date"])[:4])
             home_team = match["home_team"]
             away_team = match["away_team"]
-            home_score = match["home_score"]
-            away_score = match["away_score"]
+            
+            # Handle potential NaN or non-numeric scores
+            try:
+                home_score = float(match["home_score"])
+                away_score = float(match["away_score"])
+                if pd.isna(home_score) or pd.isna(away_score):
+                    continue
+            except (ValueError, TypeError):
+                continue
             
             # Track team A performance
             if home_team == team_a:
@@ -1477,31 +1484,34 @@ if st.button("Explain matchup", type="primary", use_container_width=True):
         st.subheader("📈 Momentum Timeline")
         st.caption("Visualize how both teams have evolved over the years")
         
-        momentum_chart = create_momentum_timeline_chart(team_a, team_b)
-        if momentum_chart:
-            st.plotly_chart(momentum_chart, use_container_width=True)
-            
-            # Add interpretation
-            timeline_df = create_momentum_timeline(team_a, team_b)
-            if not timeline_df.empty and len(timeline_df) > 0:
-                latest_year = timeline_df.iloc[-1]
-                team_a_latest = latest_year[team_a]
-                team_b_latest = latest_year[team_b]
+        try:
+            momentum_chart = create_momentum_timeline_chart(team_a, team_b)
+            if momentum_chart:
+                st.plotly_chart(momentum_chart, use_container_width=True)
                 
-                if team_a_latest > team_b_latest:
-                    momentum_leader = team_a
-                    momentum_diff = team_a_latest - team_b_latest
-                else:
-                    momentum_leader = team_b
-                    momentum_diff = team_b_latest - team_a_latest
-                
-                st.info(
-                    f"**Recent Trend:** {momentum_leader} shows stronger momentum in recent years "
-                    f"(+{momentum_diff:.1f} points). The timeline reveals performance patterns that "
-                    f"influence current predictions."
-                )
-        else:
-            st.warning("Insufficient historical data to generate momentum timeline for these teams.")
+                # Add interpretation
+                timeline_df = create_momentum_timeline(team_a, team_b)
+                if not timeline_df.empty and len(timeline_df) > 0:
+                    latest_year = timeline_df.iloc[-1]
+                    team_a_latest = latest_year[team_a]
+                    team_b_latest = latest_year[team_b]
+                    
+                    if team_a_latest > team_b_latest:
+                        momentum_leader = team_a
+                        momentum_diff = team_a_latest - team_b_latest
+                    else:
+                        momentum_leader = team_b
+                        momentum_diff = team_b_latest - team_a_latest
+                    
+                    st.info(
+                        f"**Recent Trend:** {momentum_leader} shows stronger momentum in recent years "
+                        f"(+{momentum_diff:.1f} points). The timeline reveals performance patterns that "
+                        f"influence current predictions."
+                    )
+            else:
+                st.warning("Insufficient historical data to generate momentum timeline for these teams.")
+        except Exception as e:
+            st.warning(f"Unable to generate momentum timeline. This may be due to limited historical data for the selected teams.")
 
         # Historical Similar Matches Section
         st.subheader("📊 Historical Similar Matchups")
