@@ -1,9 +1,91 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import base64
+import json
+import re
+import requests
 from pathlib import Path
+from datetime import datetime
 
-st.set_page_config(page_title="Soccer 2026 Match Predictor", page_icon="⚽", layout="centered")
+st.set_page_config(page_title="World Cup MatchLens", page_icon="⚽", layout="wide")
+
+APP_DIR = Path(__file__).parent
+BACKGROUND_IMAGE = APP_DIR / "assets" / "match-background.png"
+API_FOOTBALL_KEY = "d880613d58e1625c7db1e0fb6a2060bc"
+API_FOOTBALL_BASE_URL = "https://v3.football.api-sports.io"
+
+FEATURE_LABELS = {
+    "team_a_winrate": "Team A historical win rate",
+    "team_b_winrate": "Team B historical win rate",
+    "team_a_goal_avg": "Team A average goals",
+    "team_b_goal_avg": "Team B average goals",
+    "team_a_recent_form": "Team A recent form",
+    "team_b_recent_form": "Team B recent form",
+    "is_neutral": "Neutral venue",
+    "is_major_tournament": "Major tournament context",
+}
+
+FEATURE_MEANINGS = {
+    "team_a_winrate": "long-term ability to turn matches into wins",
+    "team_b_winrate": "long-term ability to turn matches into wins",
+    "team_a_goal_avg": "attacking output across historical matches",
+    "team_b_goal_avg": "attacking output across historical matches",
+    "team_a_recent_form": "short-term momentum from the latest matches",
+    "team_b_recent_form": "short-term momentum from the latest matches",
+    "is_neutral": "whether home advantage is removed",
+    "is_major_tournament": "whether the match resembles a high-pressure World Cup setting",
+}
+
+def image_to_data_uri(image_path):
+    if not image_path.exists():
+        return ""
+    encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
+    return f"data:image/png;base64,{encoded}"
+
+def apply_background():
+    image_uri = image_to_data_uri(BACKGROUND_IMAGE)
+    background_rule = (
+        f"background-image: linear-gradient(90deg, rgba(3, 9, 16, 0.88), rgba(3, 9, 16, 0.62)), url('{image_uri}');"
+        if image_uri
+        else "background: #06111d;"
+    )
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            {background_rule}
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }}
+        .block-container {{
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+        }}
+        [data-testid="stHeader"] {{
+            background: transparent;
+        }}
+        [data-testid="stSidebar"] > div:first-child {{
+            background: rgba(4, 13, 23, 0.88);
+        }}
+        h1, h2, h3, .stMarkdown, .stCaption, label, p {{
+            color: #f4f8fb;
+        }}
+        div[data-testid="stMetric"], div[data-testid="stDataFrame"], div[data-testid="stTable"] {{
+            background: rgba(6, 18, 31, 0.78);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 8px;
+            padding: 0.75rem;
+        }}
+        div[data-testid="stAlert"] {{
+            background: rgba(10, 34, 54, 0.86);
+            color: #f4f8fb;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 @st.cache_resource
 def load_artifacts():
@@ -14,8 +96,150 @@ def load_artifacts():
 model, team_stats, feature_cols = load_artifacts()
 team_names = sorted(team_stats.keys())
 
-st.title("⚽ Soccer 2026 Match Predictor")
-st.caption("Based on historical international football results (1872–present).")
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_live_scores_from_api():
+    """Fetch live football scores from API-Football"""
+    headers = {
+        "x-rapidapi-key": API_FOOTBALL_KEY,
+        "x-rapidapi-host": "v3.football.api-sports.io"
+    }
+    
+    try:
+        # Fetch live matches
+        response = requests.get(
+            f"{API_FOOTBALL_BASE_URL}/fixtures",
+            headers=headers,
+            params={"live": "all"},
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        score_rows = []
+        
+        if data.get("response"):
+            for fixture in data["response"][:12]:  # Limit to 12 matches
+                league_name = fixture.get("league", {}).get("name", "Unknown")
+                country = fixture.get("league", {}).get("country", "")
+                home_team = fixture.get("teams", {}).get("home", {}).get("name", "Unknown")
+                away_team = fixture.get("teams", {}).get("away", {}).get("name", "Unknown")
+                home_score = fixture.get("goals", {}).get("home")
+                away_score = fixture.get("goals", {}).get("away")
+                status = fixture.get("fixture", {}).get("status", {}).get("long", "Live")
+                elapsed = fixture.get("fixture", {}).get("status", {}).get("elapsed")
+                
+                # Format status with elapsed time if available
+                if elapsed:
+                    status_text = f"{status} ({elapsed}')"
+                else:
+                    status_text = status
+                
+                # Only add if we have valid scores
+                if home_score is not None and away_score is not None:
+                    competition = f"{league_name}" if not country else f"{league_name} ({country})"
+                    score_rows.append({
+                        "Competition": competition,
+                        "Match": f"{home_team} vs {away_team}",
+                        "Score": f"{home_score} - {away_score}",
+                        "Status": status_text,
+                    })
+        
+        return score_rows
+    
+    except requests.RequestException as e:
+        st.error(f"Error fetching live scores: {e}")
+        return []
+    except Exception as e:
+        st.error(f"Unexpected error: {e}")
+        return []
+
+def build_match_row(team_a, team_b, neutral, major):
+    a, b = team_stats[team_a], team_stats[team_b]
+    row = pd.DataFrame([{
+        "team_a_winrate": a["winrate"],
+        "team_b_winrate": b["winrate"],
+        "team_a_goal_avg": a["goal_avg"],
+        "team_b_goal_avg": b["goal_avg"],
+        "team_a_recent_form": a["recent_form"],
+        "team_b_recent_form": b["recent_form"],
+        "is_neutral": int(neutral),
+        "is_major_tournament": int(major),
+    }])[feature_cols]
+    return row, a, b
+
+def explain_probability_gap(row, a, b):
+    comparisons = [
+        {
+            "Signal": "Historical win rate",
+            "Edge": "Team A" if a["winrate"] > b["winrate"] else "Team B" if b["winrate"] > a["winrate"] else "Even",
+            "Difference": abs(a["winrate"] - b["winrate"]),
+            "Plain-language meaning": "Which side has more often converted matches into wins.",
+        },
+        {
+            "Signal": "Average goals",
+            "Edge": "Team A" if a["goal_avg"] > b["goal_avg"] else "Team B" if b["goal_avg"] > a["goal_avg"] else "Even",
+            "Difference": abs(a["goal_avg"] - b["goal_avg"]),
+            "Plain-language meaning": "Which side has historically produced more scoring threat.",
+        },
+        {
+            "Signal": "Recent form",
+            "Edge": "Team A" if a["recent_form"] > b["recent_form"] else "Team B" if b["recent_form"] > a["recent_form"] else "Even",
+            "Difference": abs(a["recent_form"] - b["recent_form"]),
+            "Plain-language meaning": "Which side enters the matchup with stronger short-term momentum.",
+        },
+    ]
+    return pd.DataFrame(comparisons)
+
+def feature_importance_frame():
+    importances = getattr(model, "feature_importances_", None)
+    if importances is None:
+        return pd.DataFrame()
+    frame = pd.DataFrame({
+        "Feature": [FEATURE_LABELS.get(col, col) for col in feature_cols],
+        "Importance": importances,
+        "Meaning": [FEATURE_MEANINGS.get(col, "model input") for col in feature_cols],
+    })
+    return frame.sort_values("Importance", ascending=False)
+
+def generate_fan_explanation(team_a, team_b, probabilities, comparisons, neutral, major):
+    p_a, p_draw, p_b = probabilities
+    winner_index = max(range(3), key=lambda idx: probabilities[idx])
+    leader = [team_a, "a draw", team_b][winner_index]
+    confidence = max(probabilities) - sorted(probabilities)[-2]
+    confidence_text = "narrow" if confidence < 0.08 else "moderate" if confidence < 0.18 else "clear"
+    edges = comparisons[comparisons["Edge"] != "Even"].sort_values("Difference", ascending=False)
+    top_signal = edges.iloc[0]["Signal"].lower() if not edges.empty else "balanced historical indicators"
+    venue_text = "The neutral venue reduces the usual home-field story." if neutral else "Venue context may matter because the match is not marked neutral."
+    pressure_text = "The major-tournament flag tells the model to treat this as a higher-pressure setting." if major else "Because this is not marked as a major tournament, the model reads it more like a standard international match."
+
+    return (
+        f"The model leans toward {leader}, but the confidence is {confidence_text}. "
+        f"The biggest matchup signal is {top_signal}, which helps explain why the probabilities separate. "
+        f"{venue_text} {pressure_text} "
+        "This should be read as an explanation of historical patterns, not as a claim that the match is decided before kickoff."
+    )
+
+apply_background()
+
+st.title("⚽ World Cup MatchLens")
+st.caption("An explainable AI companion for understanding international soccer matchups, built from historical results.")
+
+st.subheader("Live match scores")
+with st.container():
+    col_refresh, col_info = st.columns([1, 3])
+    with col_refresh:
+        fetch_scores = st.button("🔄 Refresh live scores", type="secondary", use_container_width=True)
+    with col_info:
+        st.caption("Live scores powered by API-Football • Auto-cached for 60 seconds")
+
+    if fetch_scores:
+        with st.spinner("Fetching live scores..."):
+            live_scores = fetch_live_scores_from_api()
+            if live_scores:
+                st.dataframe(pd.DataFrame(live_scores), use_container_width=True, hide_index=True)
+                st.success(f"✅ Found {len(live_scores)} live matches")
+            else:
+                st.info("ℹ️ No live matches found at the moment. Try again later or check if there are ongoing matches.")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -32,34 +256,35 @@ with col2:
 neutral = st.checkbox("Neutral venue", value=True)
 major = st.checkbox("Major tournament (e.g. World Cup)", value=True)
 
-if st.button("Predict", type="primary", use_container_width=True):
+if st.button("Explain matchup", type="primary", use_container_width=True):
     if team_a == team_b:
         st.error("Please pick two different teams.")
     else:
-        a, b = team_stats[team_a], team_stats[team_b]
-        row = pd.DataFrame([{
-            "team_a_winrate": a["winrate"],
-            "team_b_winrate": b["winrate"],
-            "team_a_goal_avg": a["goal_avg"],
-            "team_b_goal_avg": b["goal_avg"],
-            "team_a_recent_form": a["recent_form"],
-            "team_b_recent_form": b["recent_form"],
-            "is_neutral": int(neutral),
-            "is_major_tournament": int(major),
-        }])[feature_cols]
-
+        row, a, b = build_match_row(team_a, team_b, neutral, major)
         proba = model.predict_proba(row)[0]
         p_a, p_draw, p_b = float(proba[0]), float(proba[1]), float(proba[2])
+        comparisons = explain_probability_gap(row, a, b)
 
-        st.subheader("Predicted outcome")
-        c1, c2, c3 = st.columns(3)
-        c1.metric(f"{team_a} wins", f"{p_a*100:.1f}%")
-        c2.metric("Draw", f"{p_draw*100:.1f}%")
-        c3.metric(f"{team_b} wins", f"{p_b*100:.1f}%")
+        st.subheader("AI explanation")
+        st.info(generate_fan_explanation(team_a, team_b, [p_a, p_draw, p_b], comparisons, neutral, major))
 
-        st.progress(p_a, text=f"{team_a}: {p_a*100:.1f}%")
-        st.progress(p_draw, text=f"Draw: {p_draw*100:.1f}%")
-        st.progress(p_b, text=f"{team_b}: {p_b*100:.1f}%")
+        outcome_col, explain_col = st.columns([1, 1])
+        with outcome_col:
+            st.subheader("Model reading")
+            c1, c2, c3 = st.columns(3)
+            c1.metric(f"{team_a} wins", f"{p_a*100:.1f}%")
+            c2.metric("Draw", f"{p_draw*100:.1f}%")
+            c3.metric(f"{team_b} wins", f"{p_b*100:.1f}%")
+
+            chart_df = pd.DataFrame({
+                "Outcome": [f"{team_a} win", "Draw", f"{team_b} win"],
+                "Probability": [p_a, p_draw, p_b],
+            })
+            st.bar_chart(chart_df, x="Outcome", y="Probability", use_container_width=True)
+
+        with explain_col:
+            st.subheader("Why it leans this way")
+            st.dataframe(comparisons, use_container_width=True, hide_index=True)
 
         st.subheader("Team stats used")
         stats_df = pd.DataFrame({
@@ -77,3 +302,17 @@ if st.button("Predict", type="primary", use_container_width=True):
             },
         })
         st.table(stats_df)
+
+        st.subheader("Global model transparency")
+        importance_df = feature_importance_frame()
+        if importance_df.empty:
+            st.write("This model does not expose built-in feature importance values.")
+        else:
+            st.dataframe(importance_df, use_container_width=True, hide_index=True)
+
+        st.subheader("Trust boundaries")
+        st.write(
+            "MatchLens explains patterns in historical international results. It does not replace coaches, "
+            "referees, players, or live tactical judgment. It cannot see injuries, lineups, weather, crowd "
+            "emotion, VAR incidents, or in-match momentum unless those signals are added as data."
+        )
