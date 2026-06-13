@@ -174,6 +174,85 @@ def build_match_row(team_a, team_b, neutral, major):
     }])[feature_cols]
     return row, a, b
 
+def calculate_most_likely_scorelines(p_a, p_draw, p_b, goals_a, goals_b):
+    """Calculate most likely scorelines based on probabilities and expected goals"""
+    import numpy as np
+    from scipy.stats import poisson
+    
+    scorelines = []
+    
+    # Generate scorelines up to 4-4
+    for score_a in range(5):
+        for score_b in range(5):
+            # Probability of this exact score
+            prob_score_a = poisson.pmf(score_a, goals_a)
+            prob_score_b = poisson.pmf(score_b, goals_b)
+            
+            # Determine outcome
+            if score_a > score_b:
+                outcome_prob = p_a
+            elif score_a < score_b:
+                outcome_prob = p_b
+            else:
+                outcome_prob = p_draw
+            
+            # Combined probability
+            prob = prob_score_a * prob_score_b * outcome_prob
+            
+            scorelines.append({
+                "score": f"{score_a}-{score_b}",
+                "probability": prob
+            })
+    
+    # Sort by probability and return top 4
+    scorelines.sort(key=lambda x: x["probability"], reverse=True)
+    return scorelines[:4]
+
+def calculate_match_competitiveness(p_a, p_draw, p_b):
+    """Calculate how competitive the match is (0-100)"""
+    import numpy as np
+    
+    # Calculate entropy/uncertainty
+    probs = [p_a, p_draw, p_b]
+    # Remove zeros to avoid log(0)
+    probs = [p for p in probs if p > 0]
+    
+    if len(probs) == 0:
+        return 0
+    
+    # Maximum entropy is when all outcomes are equally likely
+    max_entropy = -sum([1/3 * np.log(1/3) for _ in range(3)])
+    
+    # Actual entropy
+    entropy = -sum([p * np.log(p) for p in probs])
+    
+    # Normalize to 0-100
+    competitiveness = (entropy / max_entropy) * 100
+    
+    return competitiveness
+
+def check_scenario_realism(form_a, form_b, goals_a, goals_b):
+    """Check if the scenario is realistic and return warnings"""
+    warnings = []
+    
+    # Check for extremely low goals
+    if goals_a < 0.7 and goals_b < 0.7:
+        warnings.append("⚠️ **Unrealistic:** Both teams average <0.7 goals. Historical occurrence: <1% of international teams.")
+    
+    # Check for extremely high goals
+    if goals_a > 2.8 or goals_b > 2.8:
+        warnings.append("⚠️ **Rare:** Teams averaging >2.8 goals are exceptional (top 5% historically).")
+    
+    # Check for extreme form differences
+    if abs(form_a - form_b) > 0.7:
+        warnings.append("⚠️ **Extreme:** Form difference >0.7 is very rare in competitive international matches.")
+    
+    # Check for both teams having very poor form
+    if form_a < 0.2 and form_b < 0.2:
+        warnings.append("⚠️ **Unrealistic:** Both teams with form <0.2 rarely face each other in major tournaments.")
+    
+    return warnings
+
 def get_fair_prediction(team_a, team_b, neutral, major):
     """Get fair prediction by averaging both team orderings to eliminate positional bias"""
     # Predict with team_a first
@@ -1367,11 +1446,11 @@ with st.expander("⚙️ Adjust Team Statistics", expanded=False):
         )
         team_a_goals_slider = st.slider(
             f"{team_a} Avg Goals",
-            min_value=0.0,
-            max_value=5.0,
-            value=team_stats[team_a]["goal_avg"] if team_a in team_stats else 1.5,
+            min_value=0.5,
+            max_value=3.0,
+            value=min(max(team_stats[team_a]["goal_avg"], 0.5), 3.0) if team_a in team_stats else 1.5,
             step=0.1,
-            help="Adjust average goals per match"
+            help="Realistic range: 0.5-3.0 goals per match for international teams"
         )
     
     with sim_col2:
@@ -1386,11 +1465,11 @@ with st.expander("⚙️ Adjust Team Statistics", expanded=False):
         )
         team_b_goals_slider = st.slider(
             f"{team_b} Avg Goals",
-            min_value=0.0,
-            max_value=5.0,
-            value=team_stats[team_b]["goal_avg"] if team_b in team_stats else 1.5,
+            min_value=0.5,
+            max_value=3.0,
+            value=min(max(team_stats[team_b]["goal_avg"], 0.5), 3.0) if team_b in team_stats else 1.5,
             step=0.1,
-            help="Adjust average goals per match"
+            help="Realistic range: 0.5-3.0 goals per match for international teams"
         )
     
     neutral_slider = st.checkbox("Neutral Venue (Simulator)", value=neutral, key="neutral_sim")
@@ -1449,6 +1528,56 @@ with st.expander("⚙️ Adjust Team Statistics", expanded=False):
         sim_c1.metric(f"{team_a} wins", f"{sim_p_a*100:.1f}%")
         sim_c2.metric("Draw", f"{sim_p_draw*100:.1f}%")
         sim_c3.metric(f"{team_b} wins", f"{sim_p_b*100:.1f}%")
+        
+        # Check scenario realism
+        realism_warnings = check_scenario_realism(
+            team_a_form_slider, team_b_form_slider,
+            team_a_goals_slider, team_b_goals_slider
+        )
+        
+        if realism_warnings:
+            st.markdown("### ⚠️ Realism Check")
+            for warning in realism_warnings:
+                st.warning(warning)
+        
+        # Match Competitiveness
+        st.markdown("### 🎯 Match Competitiveness")
+        competitiveness = calculate_match_competitiveness(sim_p_a, sim_p_draw, sim_p_b)
+        
+        comp_col1, comp_col2 = st.columns([2, 1])
+        with comp_col1:
+            # Visual bar
+            filled = int(competitiveness / 10)
+            empty = 10 - filled
+            comp_bar = "█" * filled + "░" * empty
+            st.code(f"{comp_bar} {competitiveness:.0f}%", language=None)
+        
+        with comp_col2:
+            if competitiveness > 85:
+                st.success("**Very Competitive**")
+            elif competitiveness > 70:
+                st.info("**Competitive**")
+            elif competitiveness > 50:
+                st.warning("**Moderate**")
+            else:
+                st.error("**One-Sided**")
+        
+        # Most Likely Scorelines
+        st.markdown("### ⚽ Most Likely Scorelines")
+        st.caption("Based on expected goals and win probabilities")
+        
+        scorelines = calculate_most_likely_scorelines(
+            sim_p_a, sim_p_draw, sim_p_b,
+            team_a_goals_slider, team_b_goals_slider
+        )
+        
+        score_cols = st.columns(4)
+        for idx, scoreline in enumerate(scorelines):
+            with score_cols[idx]:
+                st.metric(
+                    scoreline["score"],
+                    f"{scoreline['probability']*100:.1f}%"
+                )
         
         # Show changes from baseline
         row_baseline, a_baseline, b_baseline = build_match_row(team_a, team_b, neutral, major)

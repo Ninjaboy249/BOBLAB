@@ -1,7 +1,9 @@
 beautifulsoup4
 joblib
+numpy
 pandas
 plotly
 requests
 scikit-learn
+scipy
 streamlit
