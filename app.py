@@ -174,6 +174,23 @@ def build_match_row(team_a, team_b, neutral, major):
     }])[feature_cols]
     return row, a, b
 
+def get_fair_prediction(team_a, team_b, neutral, major):
+    """Get fair prediction by averaging both team orderings to eliminate positional bias"""
+    # Predict with team_a first
+    row1, a, b = build_match_row(team_a, team_b, neutral, major)
+    proba1 = model.predict_proba(row1)[0]
+    
+    # Predict with teams swapped
+    row2, b, a = build_match_row(team_b, team_a, neutral, major)
+    proba2 = model.predict_proba(row2)[0]
+    
+    # Average predictions (swap proba2 to match team order)
+    p_a = (proba1[0] + proba2[2]) / 2  # Team A win
+    p_draw = (proba1[1] + proba2[1]) / 2  # Draw
+    p_b = (proba1[2] + proba2[0]) / 2  # Team B win
+    
+    return [p_a, p_draw, p_b], a, b
+
 def explain_probability_gap(row, a, b):
     comparisons = [
         {
@@ -1478,9 +1495,12 @@ if st.button("Explain matchup", type="primary", use_container_width=True):
     if team_a == team_b:
         st.error("Please pick two different teams.")
     else:
-        row, a, b = build_match_row(team_a, team_b, neutral, major)
-        proba = model.predict_proba(row)[0]
-        p_a, p_draw, p_b = float(proba[0]), float(proba[1]), float(proba[2])
+        # Use fair prediction to eliminate positional bias
+        probabilities, a, b = get_fair_prediction(team_a, team_b, neutral, major)
+        p_a, p_draw, p_b = probabilities
+        
+        # Build row for comparisons display
+        row, _, _ = build_match_row(team_a, team_b, neutral, major)
         comparisons = explain_probability_gap(row, a, b)
 
         # Match Story Generator
