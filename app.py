@@ -234,23 +234,22 @@ def render_watch_live_panel(team_a, team_b, score_a, score_b, elapsed, status="L
         "YouTube live streams and official broadcasters are recommended."
     )
 
-    # YouTube Live Football Channel
-    st.markdown("#### 📺 Live Football Channel")
-    youtube_channel_url = "https://www.youtube.com/channel/UCVDTKYExRDyv4k449OAkHqQ"
+    # YouTube Live Football Streams
+    st.markdown("#### 📺 Live Football Streams")
+    youtube_streams_url = "https://www.youtube.com/@lfstreams/streams"
     
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.markdown("**Live Football Matches** - Official YouTube Channel")
-        st.caption("Watch live football matches and highlights")
+        st.markdown("**LF Streams** - Live Football Matches")
+        st.caption("Watch live football matches and streams")
     with col2:
-        st.link_button("Watch Live", youtube_channel_url, type="primary", use_container_width=True)
+        st.link_button("Watch Live", youtube_streams_url, type="primary", use_container_width=True)
     
-    # Option to embed YouTube channel
-    embed_youtube = st.toggle("Preview YouTube Channel", value=False, key=f"embed_youtube_{key_suffix}")
+    # Option to embed YouTube streams page
+    embed_youtube = st.toggle("Preview YouTube Streams", value=False, key=f"embed_youtube_{key_suffix}")
     if embed_youtube:
-        # Embed YouTube channel with live tab
-        youtube_embed_url = "https://www.youtube.com/embed/live_stream?channel=UCVDTKYExRDyv4k449OAkHqQ"
-        st.iframe(youtube_embed_url, height=520)
+        # Embed YouTube streams page
+        st.iframe(youtube_streams_url, height=520)
     
     st.divider()
 
@@ -282,30 +281,6 @@ def render_watch_live_panel(team_a, team_b, score_a, score_b, elapsed, status="L
                         st.markdown(f"**Stream {idx + 1}**")
                     with col2:
                         st.link_button("Watch", link, key=f"stream_{key_suffix}_{idx}", use_container_width=True)
-        
-        st.divider()
-
-    # Manual URL input section
-    st.markdown("#### 🔗 Custom Stream URL")
-    default_watch_url = livescore_search_url(team_a, team_b)
-    watch_url = st.text_input(
-        "Enter stream or match-centre URL",
-        value=default_watch_url,
-        key=f"watch_url_{key_suffix}_{team_a}_{team_b}",
-        help="Paste a legal stream or official match-centre link. LiveScore search is used as a safe default.",
-    )
-
-    open_col, embed_col = st.columns([1, 1])
-    if valid_watch_url(watch_url):
-        with open_col:
-            st.link_button("Open live match", watch_url, type="primary", use_container_width=True)
-        with embed_col:
-            embed_watch = st.toggle("Preview in app", value=False, key=f"embed_watch_{key_suffix}_{team_a}_{team_b}")
-
-        if embed_watch:
-            st.iframe(watch_url, height=520)
-    else:
-        st.warning("Enter a valid http or https URL to open the live match.")
 
 APP_DIR = Path(__file__).parent
 BACKGROUND_IMAGE = APP_DIR / "assets" / "match-background.png"
