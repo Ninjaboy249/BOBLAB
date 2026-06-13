@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from pathlib import Path
 from datetime import datetime
 
-st.set_page_config(page_title="World Cup MatchLens", page_icon="⚽", layout="wide")
+st.set_page_config(page_title="Football MatchLens by Regression", page_icon="⚽", layout="wide")
 
 APP_DIR = Path(__file__).parent
 BACKGROUND_IMAGE = APP_DIR / "assets" / "match-background.png"
@@ -1130,8 +1130,8 @@ def calculate_upset_alert(team_a, team_b, probabilities, a_stats, b_stats, compa
 
 apply_background()
 
-st.title("⚽ World Cup MatchLens")
-st.caption("An explainable AI companion for understanding international soccer matchups, built from historical results.")
+st.title("⚽ Football MatchLens by Regression")
+st.caption("An explainable AI companion for understanding international soccer matchups, built from historical results using regression models.")
 
 st.subheader("Live match scores")
 with st.container():
