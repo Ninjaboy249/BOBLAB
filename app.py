@@ -1344,17 +1344,17 @@ with st.expander("⚙️ Adjust Team Statistics", expanded=False):
             f"{team_a} Recent Form",
             min_value=0.0,
             max_value=1.0,
-            value=team_stats[team_a]["recent_form"] if team_a in team_stats else 0.5,
+            value=0.0,
             step=0.01,
-            help="Adjust recent form (0 = poor, 1 = excellent)"
+            help="Adjust recent form (0 = poor, 1 = excellent). Start from 0 for fair comparison."
         )
         team_a_goals_slider = st.slider(
             f"{team_a} Goals Scored",
             min_value=0.0,
             max_value=5.0,
-            value=team_stats[team_a]["goal_avg"] if team_a in team_stats else 1.5,
+            value=0.0,
             step=0.1,
-            help="Adjust average goals per match"
+            help="Adjust average goals per match. Start from 0 for fair comparison."
         )
     
     with sim_col2:
@@ -1363,17 +1363,17 @@ with st.expander("⚙️ Adjust Team Statistics", expanded=False):
             f"{team_b} Recent Form",
             min_value=0.0,
             max_value=1.0,
-            value=team_stats[team_b]["recent_form"] if team_b in team_stats else 0.5,
+            value=0.0,
             step=0.01,
-            help="Adjust recent form (0 = poor, 1 = excellent)"
+            help="Adjust recent form (0 = poor, 1 = excellent). Start from 0 for fair comparison."
         )
         team_b_goals_slider = st.slider(
             f"{team_b} Goals Scored",
             min_value=0.0,
             max_value=5.0,
-            value=team_stats[team_b]["goal_avg"] if team_b in team_stats else 1.5,
+            value=0.0,
             step=0.1,
-            help="Adjust average goals per match"
+            help="Adjust average goals per match. Start from 0 for fair comparison."
         )
     
     neutral_slider = st.checkbox("Neutral Venue (Simulator)", value=neutral, key="neutral_sim")
