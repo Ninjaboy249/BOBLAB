@@ -428,6 +428,83 @@ def analyze_similar_matches_outcome(similar_matches, team_a, team_b):
     
     return f"**{leader_count} of the last {total} similar matchups resulted in a {leader} win** ({draws} draws, {min(team_a_wins, team_b_wins)} for the other side)."
 
+def calculate_upset_alert(team_a, team_b, probabilities, a_stats, b_stats, comparisons):
+    """Calculate upset potential and generate alert"""
+    p_a, p_draw, p_b = probabilities
+    
+    # Determine favorite and underdog
+    if p_a > p_b:
+        favorite = team_a
+        favorite_prob = p_a
+        underdog = team_b
+        underdog_prob = p_b
+        underdog_stats = b_stats
+        favorite_stats = a_stats
+    else:
+        favorite = team_b
+        favorite_prob = p_b
+        underdog = team_a
+        underdog_prob = p_a
+        underdog_stats = a_stats
+        favorite_stats = b_stats
+    
+    # Calculate upset potential factors
+    prob_gap = favorite_prob - underdog_prob
+    
+    # Check for upset indicators
+    upset_factors = []
+    
+    # Recent form advantage for underdog
+    if underdog_stats["recent_form"] > favorite_stats["recent_form"]:
+        form_diff = underdog_stats["recent_form"] - favorite_stats["recent_form"]
+        if form_diff > 0.15:
+            upset_factors.append(f"{underdog}'s recent form is improving")
+    
+    # Close goal averages
+    goal_diff = abs(underdog_stats["goal_avg"] - favorite_stats["goal_avg"])
+    if goal_diff < 0.3:
+        upset_factors.append(f"attacking output is closely matched")
+    
+    # Underdog has decent win rate
+    if underdog_stats["winrate"] > 0.45:
+        upset_factors.append(f"{underdog} has a strong historical win rate")
+    
+    # Determine upset level
+    if underdog_prob >= 0.35:
+        level = "High"
+        emoji = "🚨"
+        color = "error"
+    elif underdog_prob >= 0.25:
+        level = "Medium"
+        emoji = "⚠️"
+        color = "warning"
+    elif underdog_prob >= 0.15:
+        level = "Low"
+        emoji = "ℹ️"
+        color = "info"
+    else:
+        level = "Minimal"
+        emoji = "✓"
+        color = "success"
+    
+    # Generate alert message
+    if upset_factors:
+        factors_text = ", ".join(upset_factors[:2])  # Limit to 2 factors
+        message = f"Although **{favorite}** is favored, {factors_text}."
+    else:
+        message = f"**{favorite}** holds clear advantages across key metrics."
+    
+    return {
+        "level": level,
+        "emoji": emoji,
+        "color": color,
+        "favorite": favorite,
+        "underdog": underdog,
+        "underdog_prob": underdog_prob,
+        "message": message,
+        "prob_gap": prob_gap
+    }
+
 apply_background()
 
 st.title("⚽ World Cup MatchLens")
@@ -477,6 +554,32 @@ if st.button("Explain matchup", type="primary", use_container_width=True):
         st.subheader("🧠 AI Match Analyst")
         analyst_report = generate_ai_analyst_report(team_a, team_b, [p_a, p_draw, p_b], a, b, comparisons, neutral, major)
         st.markdown(analyst_report)
+
+        # Upset Alert System
+        upset_alert = calculate_upset_alert(team_a, team_b, [p_a, p_draw, p_b], a, b, comparisons)
+        
+        st.subheader(f"{upset_alert['emoji']} Upset Alert System")
+        
+        # Create alert box with appropriate styling
+        alert_container = st.container()
+        with alert_container:
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.markdown(f"**Upset Potential: {upset_alert['level']}**")
+                st.write(upset_alert['message'])
+            with col2:
+                st.metric("Upset Chance", f"{upset_alert['underdog_prob']*100:.1f}%",
+                         delta=f"{upset_alert['underdog']} win")
+        
+        # Display appropriate alert based on level
+        if upset_alert['level'] == "High":
+            st.error(f"⚠️ **High upset potential!** {upset_alert['underdog']} has a significant chance to win despite being the underdog.")
+        elif upset_alert['level'] == "Medium":
+            st.warning(f"⚠️ **Moderate upset risk.** Don't count out {upset_alert['underdog']} in this matchup.")
+        elif upset_alert['level'] == "Low":
+            st.info(f"ℹ️ **Low upset probability.** {upset_alert['favorite']} is the clear favorite.")
+        else:
+            st.success(f"✓ **Minimal upset risk.** {upset_alert['favorite']} holds strong advantages.")
 
         outcome_col, explain_col = st.columns([1, 1])
         with outcome_col:
