@@ -9,33 +9,124 @@ import plotly.graph_objects as go
 from pathlib import Path
 from datetime import datetime
 
+try:
+    import pycountry
+except ImportError:
+    pycountry = None
+
 st.set_page_config(page_title="Football MatchLens by Regression", page_icon="⚽", layout="wide")
 
-# Country flag emojis mapping
-COUNTRY_FLAGS = {
-    "Argentina": "🇦🇷", "Australia": "🇦🇺", "Austria": "🇦🇹", "Belgium": "🇧🇪",
-    "Brazil": "🇧🇷", "Cameroon": "🇨🇲", "Canada": "🇨🇦", "Chile": "🇨🇱",
-    "Colombia": "🇨🇴", "Costa Rica": "🇨🇷", "Croatia": "🇭🇷", "Czech Republic": "🇨🇿",
-    "Denmark": "🇩🇰", "Ecuador": "🇪🇨", "Egypt": "🇪🇬", "England": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
-    "France": "🇫🇷", "Germany": "🇩🇪", "Ghana": "🇬🇭", "Greece": "🇬🇷",
-    "Honduras": "🇭🇳", "Iran": "🇮🇷", "Italy": "🇮🇹", "Ivory Coast": "🇨🇮",
-    "Japan": "🇯🇵", "Mexico": "🇲🇽", "Morocco": "🇲🇦", "Netherlands": "🇳🇱",
-    "New Zealand": "🇳🇿", "Nigeria": "🇳🇬", "Norway": "🇳🇴", "Paraguay": "🇵🇾",
-    "Peru": "🇵🇪", "Poland": "🇵🇱", "Portugal": "🇵🇹", "Republic of Ireland": "🇮🇪",
-    "Romania": "🇷🇴", "Russia": "🇷🇺", "Saudi Arabia": "🇸🇦", "Senegal": "🇸🇳",
-    "Serbia": "🇷🇸", "Slovakia": "🇸🇰", "Slovenia": "🇸🇮", "South Africa": "🇿🇦",
-    "South Korea": "🇰🇷", "Spain": "🇪🇸", "Sweden": "🇸🇪", "Switzerland": "🇨🇭",
-    "Tunisia": "🇹🇳", "Turkey": "🇹🇷", "Ukraine": "🇺🇦", "United States": "🇺🇸",
-    "Uruguay": "🇺🇾", "Wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿", "Algeria": "🇩🇿", "Bosnia-Herzegovina": "🇧🇦",
-    "Bulgaria": "🇧🇬", "China PR": "🇨🇳", "Cuba": "🇨🇺", "Hungary": "🇭🇺",
-    "Iceland": "🇮🇸", "India": "🇮🇳", "Indonesia": "🇮🇩", "Iraq": "🇮🇶",
-    "Israel": "🇮🇱", "Jamaica": "🇯🇲", "North Korea": "🇰🇵", "Scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
-    "Thailand": "🇹🇭", "Trinidad and Tobago": "🇹🇹", "Venezuela": "🇻🇪", "Vietnam": "🇻🇳"
+COUNTRY_CODE_ALIASES = {
+    "Bosnia-Herzegovina": "BA",
+    "Bosnia and Herzegovina": "BA",
+    "British Virgin Islands": "VG",
+    "Cape Verde": "CV",
+    "China PR": "CN",
+    "Congo": "CG",
+    "Curaçao": "CW",
+    "Czech Republic": "CZ",
+    "Czechoslovakia": "CZ",
+    "DR Congo": "CD",
+    "England": "GB-ENG",
+    "Eswatini": "SZ",
+    "Faroe Islands": "FO",
+    "German DR": "DE",
+    "Hong Kong": "HK",
+    "Iran": "IR",
+    "Ivory Coast": "CI",
+    "Kosovo": "XK",
+    "Laos": "LA",
+    "Macau": "MO",
+    "Moldova": "MD",
+    "Myanmar": "MM",
+    "New Caledonia": "NC",
+    "North Korea": "KP",
+    "North Macedonia": "MK",
+    "Northern Ireland": "GB-NIR",
+    "Palestine": "PS",
+    "Republic of Ireland": "IE",
+    "Russia": "RU",
+    "Saint Kitts and Nevis": "KN",
+    "Saint Lucia": "LC",
+    "Saint Vincent and the Grenadines": "VC",
+    "Scotland": "GB-SCT",
+    "South Korea": "KR",
+    "São Tomé and Príncipe": "ST",
+    "Syria": "SY",
+    "Tahiti": "PF",
+    "Taiwan": "TW",
+    "Tanzania": "TZ",
+    "Timor-Leste": "TL",
+    "Turkey": "TR",
+    "Turks and Caicos Islands": "TC",
+    "United States": "US",
+    "United States Virgin Islands": "VI",
+    "Vietnam": "VN",
+    "Vietnam Republic": "VN",
+    "Wales": "GB-WLS",
+    "Yugoslavia": "RS",
 }
 
+FLAG_IMAGE_CODES = {
+    "GB-ENG": "gb-eng",
+    "GB-NIR": "gb-nir",
+    "GB-SCT": "gb-sct",
+    "GB-WLS": "gb-wls",
+}
+
+def alpha2_to_emoji(alpha2):
+    return "".join(chr(127397 + ord(char)) for char in alpha2.upper())
+
+def get_country_code(country_name):
+    code = COUNTRY_CODE_ALIASES.get(country_name)
+    if code:
+        return code
+
+    if pycountry:
+        try:
+            return pycountry.countries.lookup(country_name).alpha_2
+        except LookupError:
+            try:
+                matches = pycountry.countries.search_fuzzy(country_name)
+                if matches:
+                    return matches[0].alpha_2
+            except LookupError:
+                pass
+
+    return None
+
 def get_flag(country_name):
-    """Get flag emoji for a country, return ⚽ if not found"""
-    return COUNTRY_FLAGS.get(country_name, "⚽")
+    code = get_country_code(country_name)
+    if not code:
+        return country_name[:3].upper()
+    if code.startswith("GB-"):
+        return code.split("-")[1]
+    return alpha2_to_emoji(code)
+
+def get_flag_image_url(country_name):
+    code = get_country_code(country_name)
+    if not code:
+        return None
+    image_code = FLAG_IMAGE_CODES.get(code, code.lower())
+    return f"https://flagcdn.com/{image_code}.svg"
+
+def flag_img_html(country_name, size=28):
+    url = get_flag_image_url(country_name)
+    if not url:
+        return f"<span class='flag-code'>{get_flag(country_name)}</span>"
+    return (
+        f"<img class='country-flag' src='{url}' alt='{country_name} flag' "
+        f"style='height:{size}px; width:{int(size * 1.45)}px;' />"
+    )
+
+def team_label(country_name):
+    return f"{get_flag(country_name)} {country_name}"
+
+def render_team_heading(country_name, heading_level=3):
+    st.markdown(
+        f"<h{heading_level} class='team-heading'>{flag_img_html(country_name)}<span>{country_name}</span></h{heading_level}>",
+        unsafe_allow_html=True,
+    )
 
 APP_DIR = Path(__file__).parent
 BACKGROUND_IMAGE = APP_DIR / "assets" / "match-background.png"
@@ -108,6 +199,30 @@ def apply_background():
         div[data-testid="stAlert"] {{
             background: rgba(10, 34, 54, 0.86);
             color: #f4f8fb;
+        }}
+        .team-heading {{
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+        }}
+        .country-flag {{
+            object-fit: cover;
+            border-radius: 3px;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
+            vertical-align: middle;
+        }}
+        .flag-code {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 2.35rem;
+            height: 1.6rem;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.14);
+            color: #f4f8fb;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0;
         }}
         </style>
         """,
@@ -1344,11 +1459,11 @@ with st.expander("⚽ Analyze Live Match", expanded=False):
     live_match_col1, live_match_col2 = st.columns(2)
     
     with live_match_col1:
-        live_team_a = st.selectbox("Team A", team_names, key="live_team_a", format_func=lambda x: f"{get_flag(x)} {x}")
+        live_team_a = st.selectbox("Team A", team_names, key="live_team_a", format_func=team_label)
         live_score_a = st.number_input("Team A Score", min_value=0, max_value=20, value=1, key="live_score_a")
     
     with live_match_col2:
-        live_team_b = st.selectbox("Team B", team_names, key="live_team_b", format_func=lambda x: f"{get_flag(x)} {x}")
+        live_team_b = st.selectbox("Team B", team_names, key="live_team_b", format_func=team_label)
         live_score_b = st.number_input("Team B Score", min_value=0, max_value=20, value=0, key="live_score_b")
     
     live_elapsed = st.slider("Match Time (minutes)", min_value=0, max_value=90, value=67, step=1)
@@ -1375,11 +1490,11 @@ with st.expander("⚽ Analyze Live Match", expanded=False):
             # Score display
             score_col1, score_col2, score_col3 = st.columns([2, 1, 2])
             with score_col1:
-                st.markdown(f"### {live_team_a}")
+                render_team_heading(live_team_a)
             with score_col2:
                 st.markdown(f"### {live_score_a} - {live_score_b}")
             with score_col3:
-                st.markdown(f"### {live_team_b}")
+                render_team_heading(live_team_b)
             
             st.caption(f"⏱️ {live_elapsed}' elapsed")
             
@@ -1443,13 +1558,13 @@ with col1:
     team_a = st.selectbox(
         "Team A", team_names,
         index=team_names.index("Brazil") if "Brazil" in team_names else 0,
-        format_func=lambda x: f"{get_flag(x)} {x}"
+        format_func=team_label
     )
 with col2:
     team_b = st.selectbox(
         "Team B", team_names,
         index=team_names.index("Argentina") if "Argentina" in team_names else 1,
-        format_func=lambda x: f"{get_flag(x)} {x}"
+        format_func=team_label
     )
 
 neutral = st.checkbox("Neutral venue", value=True)
@@ -1469,7 +1584,7 @@ if team_a != team_b and team_a in team_stats and team_b in team_stats:
     sim_col1, sim_col2 = st.columns(2)
     
     with sim_col1:
-        st.markdown(f"### {get_flag(team_a)} {team_a}")
+        render_team_heading(team_a)
         
         # Recent Form (0-100 scale for user-friendliness)
         team_a_form_pct = st.slider(
@@ -1495,7 +1610,7 @@ if team_a != team_b and team_a in team_stats and team_b in team_stats:
         )
     
     with sim_col2:
-        st.markdown(f"### {get_flag(team_b)} {team_b}")
+        render_team_heading(team_b)
         
         # Recent Form (0-100 scale)
         team_b_form_pct = st.slider(
