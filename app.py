@@ -2,12 +2,15 @@ import streamlit as st
 import pandas as pd
 import joblib
 import base64
+import html
 import json
 import re
 import requests
 import plotly.graph_objects as go
+import streamlit.components.v1 as components
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import quote_plus, urlparse
 
 try:
     import pycountry
@@ -113,9 +116,9 @@ def get_flag_image_url(country_name):
 def flag_img_html(country_name, size=28):
     url = get_flag_image_url(country_name)
     if not url:
-        return f"<span class='flag-code'>{get_flag(country_name)}</span>"
+        return f"<span class='flag-code'>{html.escape(get_flag(country_name))}</span>"
     return (
-        f"<img class='country-flag' src='{url}' alt='{country_name} flag' "
+        f"<img class='country-flag' src='{url}' alt='{html.escape(country_name)} flag' "
         f"style='height:{size}px; width:{int(size * 1.45)}px;' />"
     )
 
@@ -124,9 +127,75 @@ def team_label(country_name):
 
 def render_team_heading(country_name, heading_level=3):
     st.markdown(
-        f"<h{heading_level} class='team-heading'>{flag_img_html(country_name)}<span>{country_name}</span></h{heading_level}>",
+        f"<h{heading_level} class='team-heading'>{flag_img_html(country_name)}<span>{html.escape(country_name)}</span></h{heading_level}>",
         unsafe_allow_html=True,
     )
+
+def valid_watch_url(url):
+    parsed = urlparse(url.strip())
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+def livescore_search_url(team_a, team_b):
+    return f"https://www.livescore.com/en/search/?q={quote_plus(f'{team_a} {team_b}')}"
+
+def render_live_match_card(team_a, team_b, score_a, score_b, elapsed, status="Live"):
+    safe_team_a = html.escape(team_a)
+    safe_team_b = html.escape(team_b)
+    safe_status = html.escape(str(status))
+    st.markdown(
+        f"""
+        <div class="watch-card">
+            <div class="watch-team">
+                {flag_img_html(team_a, 34)}
+                <div>
+                    <div class="watch-label">Home</div>
+                    <div class="watch-name">{safe_team_a}</div>
+                </div>
+            </div>
+            <div class="watch-score">
+                <div class="watch-live">LIVE</div>
+                <div class="watch-scoreline">{score_a} - {score_b}</div>
+                <div class="watch-time">{elapsed}' • {safe_status}</div>
+            </div>
+            <div class="watch-team watch-team-right">
+                <div>
+                    <div class="watch-label">Away</div>
+                    <div class="watch-name">{safe_team_b}</div>
+                </div>
+                {flag_img_html(team_b, 34)}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+def render_watch_live_panel(team_a, team_b, score_a, score_b, elapsed, status="Live", key_suffix="manual"):
+    st.markdown("### ▶️ Watch live")
+    render_live_match_card(team_a, team_b, score_a, score_b, elapsed, status)
+    st.caption(
+        "Use an official broadcaster, tournament, club, federation, or rights-holder URL. "
+        "Some services block embedding, so the open button is the most reliable option."
+    )
+
+    default_watch_url = livescore_search_url(team_a, team_b)
+    watch_url = st.text_input(
+        "Official stream or match-centre URL",
+        value=default_watch_url,
+        key=f"watch_url_{key_suffix}_{team_a}_{team_b}",
+        help="Paste a legal stream or official match-centre link. LiveScore search is used as a safe default.",
+    )
+
+    open_col, embed_col = st.columns([1, 1])
+    if valid_watch_url(watch_url):
+        with open_col:
+            st.link_button("Open live match", watch_url, type="primary", use_container_width=True)
+        with embed_col:
+            embed_watch = st.toggle("Preview in app", value=False, key=f"embed_watch_{key_suffix}_{team_a}_{team_b}")
+
+        if embed_watch:
+            components.iframe(watch_url, height=520, scrolling=True)
+    else:
+        st.warning("Enter a valid http or https URL to open the live match.")
 
 APP_DIR = Path(__file__).parent
 BACKGROUND_IMAGE = APP_DIR / "assets" / "match-background.png"
@@ -223,6 +292,78 @@ def apply_background():
             font-size: 0.78rem;
             font-weight: 700;
             letter-spacing: 0;
+        }}
+        .watch-card {{
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            margin: 0.4rem 0 0.8rem;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 8px;
+            background: linear-gradient(135deg, rgba(6, 18, 31, 0.92), rgba(9, 37, 55, 0.78));
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24);
+        }}
+        .watch-team {{
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            min-width: 0;
+        }}
+        .watch-team-right {{
+            justify-content: flex-end;
+            text-align: right;
+        }}
+        .watch-label {{
+            color: rgba(244, 248, 251, 0.68);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }}
+        .watch-name {{
+            color: #f4f8fb;
+            font-size: 1.1rem;
+            font-weight: 750;
+            overflow-wrap: anywhere;
+        }}
+        .watch-score {{
+            text-align: center;
+            min-width: 7.5rem;
+        }}
+        .watch-live {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.12rem 0.5rem;
+            border-radius: 999px;
+            background: #d9163f;
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+        }}
+        .watch-scoreline {{
+            color: #ffffff;
+            font-size: 2.2rem;
+            font-weight: 850;
+            line-height: 1;
+            margin-top: 0.35rem;
+        }}
+        .watch-time {{
+            color: rgba(244, 248, 251, 0.75);
+            font-size: 0.82rem;
+            margin-top: 0.25rem;
+        }}
+        @media (max-width: 720px) {{
+            .watch-card {{
+                grid-template-columns: 1fr;
+                text-align: center;
+            }}
+            .watch-team, .watch-team-right {{
+                justify-content: center;
+                text-align: center;
+            }}
         }}
         </style>
         """,
@@ -1442,7 +1583,15 @@ with st.expander("⚽ Analyze Live Match", expanded=False):
             live_elapsed = int(time_match.group(1)) if time_match else 45
             
             # Display selected match info
-            st.info(f"**Selected:** {live_team_a} {live_score_a} - {live_score_b} {live_team_b} | {status_text}")
+            render_watch_live_panel(
+                live_team_a,
+                live_team_b,
+                live_score_a,
+                live_score_b,
+                live_elapsed,
+                status_text,
+                key_suffix="fetched",
+            )
             
             # Check if teams are in our database
             if live_team_a not in team_stats or live_team_b not in team_stats:
@@ -1460,15 +1609,19 @@ with st.expander("⚽ Analyze Live Match", expanded=False):
     
     with live_match_col1:
         live_team_a = st.selectbox("Team A", team_names, key="live_team_a", format_func=team_label)
+        render_team_heading(live_team_a)
         live_score_a = st.number_input("Team A Score", min_value=0, max_value=20, value=1, key="live_score_a")
     
     with live_match_col2:
         live_team_b = st.selectbox("Team B", team_names, key="live_team_b", format_func=team_label)
+        render_team_heading(live_team_b)
         live_score_b = st.number_input("Team B Score", min_value=0, max_value=20, value=0, key="live_score_b")
     
     live_elapsed = st.slider("Match Time (minutes)", min_value=0, max_value=90, value=67, step=1)
     live_neutral = st.checkbox("Neutral venue (Live)", value=True, key="live_neutral")
     live_major = st.checkbox("Major tournament (Live)", value=True, key="live_major")
+
+    render_watch_live_panel(live_team_a, live_team_b, live_score_a, live_score_b, live_elapsed, key_suffix="manual")
     
     if st.button("🔄 Update Live Analysis", type="primary", use_container_width=True):
         if live_team_a == live_team_b:
