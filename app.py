@@ -93,7 +93,13 @@ def load_artifacts():
     data = joblib.load(Path("models") / "team_data.pkl")
     return model, data["team_stats"], data["feature_cols"]
 
+@st.cache_data
+def load_historical_results():
+    """Load historical match results"""
+    return pd.read_csv(Path("data") / "results.csv")
+
 model, team_stats, feature_cols = load_artifacts()
+historical_results = load_historical_results()
 team_names = sorted(team_stats.keys())
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -295,6 +301,133 @@ def generate_ai_analyst_report(team_a, team_b, probabilities, a_stats, b_stats, 
     
     return "".join(report_parts)
 
+def find_similar_matches(team_a, team_b, a_stats, b_stats, neutral, major, top_n=10):
+    """Find historically similar matches based on team statistics"""
+    import numpy as np
+    
+    # Calculate feature vector for current matchup
+    current_features = np.array([
+        a_stats["winrate"],
+        b_stats["winrate"],
+        a_stats["goal_avg"],
+        b_stats["goal_avg"],
+        a_stats["recent_form"],
+        b_stats["recent_form"],
+        int(neutral),
+        int(major)
+    ])
+    
+    similar_matches = []
+    
+    # Search through historical results
+    for _, match in historical_results.iterrows():
+        home_team = match["home_team"]
+        away_team = match["away_team"]
+        
+        # Skip if teams not in our stats
+        if home_team not in team_stats or away_team not in team_stats:
+            continue
+        
+        # Get stats for historical match teams
+        home_stats = team_stats[home_team]
+        away_stats = team_stats[away_team]
+        
+        # Create feature vector for historical match
+        hist_features = np.array([
+            home_stats["winrate"],
+            away_stats["winrate"],
+            home_stats["goal_avg"],
+            away_stats["goal_avg"],
+            home_stats["recent_form"],
+            away_stats["recent_form"],
+            1 if match["neutral"] == "TRUE" or match["neutral"] == True else 0,
+            1 if "World Cup" in str(match.get("tournament", "")) or "FIFA" in str(match.get("tournament", "")) else 0
+        ])
+        
+        # Calculate similarity (using cosine similarity)
+        similarity = np.dot(current_features, hist_features) / (
+            np.linalg.norm(current_features) * np.linalg.norm(hist_features)
+        )
+        
+        # Determine result
+        home_score = match["home_score"]
+        away_score = match["away_score"]
+        if home_score > away_score:
+            result = f"{home_team} {home_score}-{away_score}"
+            outcome = "win"
+        elif away_score > home_score:
+            result = f"{away_team} {away_score}-{home_score}"
+            outcome = "loss"
+        else:
+            result = f"Draw {home_score}-{away_score}"
+            outcome = "draw"
+        
+        similar_matches.append({
+            "Match": f"{home_team} vs {away_team}",
+            "Similarity": f"{similarity * 100:.0f}%",
+            "Result": result,
+            "Date": match["date"],
+            "similarity_score": similarity,
+            "outcome": outcome,
+            "home_team": home_team,
+            "away_team": away_team
+        })
+    
+    # Sort by similarity and return top N
+    similar_matches.sort(key=lambda x: x["similarity_score"], reverse=True)
+    return similar_matches[:top_n]
+
+def analyze_similar_matches_outcome(similar_matches, team_a, team_b):
+    """Analyze outcomes from similar matches"""
+    if not similar_matches:
+        return "No similar historical matches found."
+    
+    team_a_wins = 0
+    team_b_wins = 0
+    draws = 0
+    
+    for match in similar_matches:
+        # Check if team_a or team_b was involved and won
+        if team_a in match["Match"]:
+            if match["outcome"] == "win" and match["home_team"] == team_a:
+                team_a_wins += 1
+            elif match["outcome"] == "loss" and match["away_team"] == team_a:
+                team_a_wins += 1
+            elif match["outcome"] == "draw":
+                draws += 1
+            else:
+                team_b_wins += 1
+        elif team_b in match["Match"]:
+            if match["outcome"] == "win" and match["home_team"] == team_b:
+                team_b_wins += 1
+            elif match["outcome"] == "loss" and match["away_team"] == team_b:
+                team_b_wins += 1
+            elif match["outcome"] == "draw":
+                draws += 1
+            else:
+                team_a_wins += 1
+        else:
+            # Neither team directly involved, analyze by outcome pattern
+            if match["outcome"] == "win":
+                team_a_wins += 1  # Assume favorite wins
+            elif match["outcome"] == "draw":
+                draws += 1
+            else:
+                team_b_wins += 1
+    
+    total = len(similar_matches)
+    
+    if team_a_wins > team_b_wins:
+        leader = team_a
+        leader_count = team_a_wins
+    elif team_b_wins > team_a_wins:
+        leader = team_b
+        leader_count = team_b_wins
+    else:
+        return f"Similar matchups show an even split: {team_a_wins} wins for {team_a}, {team_b_wins} for {team_b}, and {draws} draws."
+    
+    return f"**{leader_count} of the last {total} similar matchups resulted in a {leader} win** ({draws} draws, {min(team_a_wins, team_b_wins)} for the other side)."
+
 apply_background()
 
 st.title("⚽ World Cup MatchLens")
@@ -362,6 +495,29 @@ if st.button("Explain matchup", type="primary", use_container_width=True):
         with explain_col:
             st.subheader("Why it leans this way")
             st.dataframe(comparisons, use_container_width=True, hide_index=True)
+
+        # Historical Similar Matches Section
+        st.subheader("📊 Historical Similar Matchups")
+        with st.spinner("Finding similar historical matches..."):
+            similar_matches = find_similar_matches(team_a, team_b, a, b, neutral, major, top_n=10)
+            
+            if similar_matches:
+                # Display top 3 most similar matches in a table
+                display_matches = []
+                for match in similar_matches[:3]:
+                    display_matches.append({
+                        "Match": match["Match"],
+                        "Similarity": match["Similarity"],
+                        "Result": match["Result"]
+                    })
+                
+                st.dataframe(pd.DataFrame(display_matches), use_container_width=True, hide_index=True)
+                
+                # Analysis summary
+                outcome_summary = analyze_similar_matches_outcome(similar_matches, team_a, team_b)
+                st.info(outcome_summary)
+            else:
+                st.warning("No similar historical matches found in the database.")
 
         st.subheader("Team stats used")
         stats_df = pd.DataFrame({
