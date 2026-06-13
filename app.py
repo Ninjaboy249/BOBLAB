@@ -201,23 +201,99 @@ def feature_importance_frame():
     })
     return frame.sort_values("Importance", ascending=False)
 
-def generate_fan_explanation(team_a, team_b, probabilities, comparisons, neutral, major):
+def generate_ai_analyst_report(team_a, team_b, probabilities, a_stats, b_stats, comparisons, neutral, major):
+    """Generate detailed AI Match Analyst commentary"""
     p_a, p_draw, p_b = probabilities
+    
+    # Determine predicted outcome
     winner_index = max(range(3), key=lambda idx: probabilities[idx])
-    leader = [team_a, "a draw", team_b][winner_index]
-    confidence = max(probabilities) - sorted(probabilities)[-2]
-    confidence_text = "narrow" if confidence < 0.08 else "moderate" if confidence < 0.18 else "clear"
+    if winner_index == 0:
+        favored_team = team_a
+        favored_prob = p_a
+        underdog_team = team_b
+    elif winner_index == 2:
+        favored_team = team_b
+        favored_prob = p_b
+        underdog_team = team_a
+    else:
+        favored_team = None
+        favored_prob = p_draw
+        underdog_team = None
+    
+    # Build the analyst report
+    report_parts = []
+    
+    # Opening statement
+    if favored_team:
+        report_parts.append(
+            f"**{favored_team}** enters this matchup as the statistical favorite with a **{favored_prob*100:.1f}%** win probability. "
+        )
+    else:
+        report_parts.append(
+            f"This matchup appears **evenly balanced** with a **{favored_prob*100:.1f}%** probability of a draw. "
+        )
+    
+    # Analyze key differentiators
     edges = comparisons[comparisons["Edge"] != "Even"].sort_values("Difference", ascending=False)
-    top_signal = edges.iloc[0]["Signal"].lower() if not edges.empty else "balanced historical indicators"
-    venue_text = "The neutral venue reduces the usual home-field story." if neutral else "Venue context may matter because the match is not marked neutral."
-    pressure_text = "The major-tournament flag tells the model to treat this as a higher-pressure setting." if major else "Because this is not marked as a major tournament, the model reads it more like a standard international match."
-
-    return (
-        f"The model leans toward {leader}, but the confidence is {confidence_text}. "
-        f"The biggest matchup signal is {top_signal}, which helps explain why the probabilities separate. "
-        f"{venue_text} {pressure_text} "
-        "This should be read as an explanation of historical patterns, not as a claim that the match is decided before kickoff."
+    
+    if not edges.empty:
+        # Win rate analysis
+        if a_stats["winrate"] != b_stats["winrate"]:
+            win_leader = team_a if a_stats["winrate"] > b_stats["winrate"] else team_b
+            win_leader_rate = max(a_stats["winrate"], b_stats["winrate"])
+            win_diff = abs(a_stats["winrate"] - b_stats["winrate"])
+            report_parts.append(
+                f"{win_leader} holds a **higher historical win rate** ({win_leader_rate:.1%} vs {min(a_stats['winrate'], b_stats['winrate']):.1%}), "
+                f"demonstrating a {win_diff:.1%} advantage in converting matches into victories. "
+            )
+        
+        # Goal scoring analysis
+        if a_stats["goal_avg"] != b_stats["goal_avg"]:
+            goal_leader = team_a if a_stats["goal_avg"] > b_stats["goal_avg"] else team_b
+            goal_leader_avg = max(a_stats["goal_avg"], b_stats["goal_avg"])
+            goal_underdog_avg = min(a_stats["goal_avg"], b_stats["goal_avg"])
+            report_parts.append(
+                f"The model is particularly influenced by **{goal_leader}'s attacking output** "
+                f"(**{goal_leader_avg:.2f}** goals per game versus **{goal_underdog_avg:.2f}**), "
+                f"suggesting stronger offensive capabilities. "
+            )
+        
+        # Recent form analysis
+        if a_stats["recent_form"] != b_stats["recent_form"]:
+            form_leader = team_a if a_stats["recent_form"] > b_stats["recent_form"] else team_b
+            form_diff = abs(a_stats["recent_form"] - b_stats["recent_form"])
+            if form_diff > 0.15:
+                report_parts.append(
+                    f"**{form_leader}** also carries **stronger recent momentum**, "
+                    f"which adds weight to their predicted advantage. "
+                )
+    
+    # Competitive balance note
+    if favored_team and underdog_team:
+        underdog_prob = p_b if winner_index == 0 else p_a
+        if underdog_prob > 0.25:
+            report_parts.append(
+                f"While **{underdog_team}** remains competitive with a **{underdog_prob*100:.1f}%** win probability, "
+                f"historical patterns suggest **{favored_team}** is more likely to convert scoring opportunities. "
+            )
+    
+    # Context factors
+    context_parts = []
+    if neutral:
+        context_parts.append("The **neutral venue** removes home-field advantage, making historical performance metrics more decisive")
+    if major:
+        context_parts.append("the **major tournament context** suggests higher pressure and potentially tighter margins")
+    
+    if context_parts:
+        report_parts.append(" and ".join(context_parts).capitalize() + ". ")
+    
+    # Closing disclaimer
+    report_parts.append(
+        "\n\n*This analysis reflects historical patterns and statistical trends. "
+        "Actual match outcomes depend on current form, tactics, injuries, and in-game dynamics not captured in historical data.*"
     )
+    
+    return "".join(report_parts)
 
 apply_background()
 
@@ -265,8 +341,9 @@ if st.button("Explain matchup", type="primary", use_container_width=True):
         p_a, p_draw, p_b = float(proba[0]), float(proba[1]), float(proba[2])
         comparisons = explain_probability_gap(row, a, b)
 
-        st.subheader("AI explanation")
-        st.info(generate_fan_explanation(team_a, team_b, [p_a, p_draw, p_b], comparisons, neutral, major))
+        st.subheader("🧠 AI Match Analyst")
+        analyst_report = generate_ai_analyst_report(team_a, team_b, [p_a, p_draw, p_b], a, b, comparisons, neutral, major)
+        st.markdown(analyst_report)
 
         outcome_col, explain_col = st.columns([1, 1])
         with outcome_col:
