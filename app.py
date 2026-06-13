@@ -1465,10 +1465,13 @@ with st.expander("⚙️ Adjust Team Statistics", expanded=False):
         
         # Example scenario explanation
         if abs(delta_a) > 0.01 or abs(delta_b) > 0.01:
+            form_change = "improves" if team_a_form_slider > a_baseline['recent_form'] else "changes"
+            goals_change = "increases" if team_a_goals_slider > a_baseline['goal_avg'] else "changes"
+            
             st.info(
-                f"**Example:** If {team_a}'s recent form improves from {a_baseline['recent_form']:.2f} → {team_a_form_slider:.2f} "
-                f"and goals from {a_baseline['goal_avg']:.2f} → {team_a_goals_slider:.2f}, "
-                f"then {team_a}'s win probability changes from {p_a_base*100:.1f}% → {sim_p_a*100:.1f}%"
+                f"**Scenario:** With {team_a}'s recent form at {team_a_form_slider:.2f} (baseline: {a_baseline['recent_form']:.2f}) "
+                f"and goals at {team_a_goals_slider:.2f} (baseline: {a_baseline['goal_avg']:.2f}), "
+                f"{team_a}'s win probability is {sim_p_a*100:.1f}% (baseline: {p_a_base*100:.1f}%)"
             )
 
 if st.button("Explain matchup", type="primary", use_container_width=True):
