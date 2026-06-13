@@ -1378,6 +1378,8 @@ with st.expander("⚙️ Adjust Team Statistics", expanded=False):
     
     neutral_slider = st.checkbox("Neutral Venue (Simulator)", value=neutral, key="neutral_sim")
     
+    st.info("💡 **Note:** Team A and Team B positions are neutral. The model predicts based on team statistics, not position. Uncheck 'Neutral Venue' to give Team A home advantage.")
+    
     # Calculate simulated probabilities
     if team_a != team_b and team_a in team_stats and team_b in team_stats:
         # Build simulated match row with adjusted values
