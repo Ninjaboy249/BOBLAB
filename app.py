@@ -1155,14 +1155,78 @@ st.subheader("🔴 Live Match Mode")
 st.caption("Connect live scores to AI predictions and see real-time probability updates")
 
 with st.expander("⚽ Analyze Live Match", expanded=False):
+    # Fetch live matches button
+    if st.button("🔄 Fetch Live Matches", type="secondary", use_container_width=True):
+        with st.spinner("Fetching live matches..."):
+            live_scores = fetch_live_scores_from_api()
+            if live_scores:
+                st.session_state['live_matches'] = live_scores
+                st.success(f"✅ Found {len(live_scores)} live matches")
+            else:
+                st.warning("⚠️ No live matches found. You can manually enter match details below.")
+                st.session_state['live_matches'] = []
+    
+    # Display live matches if available
+    if 'live_matches' in st.session_state and st.session_state['live_matches']:
+        st.markdown("### 📺 Select a Live Match")
+        
+        # Create match options
+        match_options = []
+        for idx, match in enumerate(st.session_state['live_matches']):
+            match_str = f"{match['Match']} - {match['Score']} ({match['Status']})"
+            match_options.append(match_str)
+        
+        selected_match_str = st.selectbox("Choose a live match:", match_options, key="selected_live_match")
+        selected_idx = match_options.index(selected_match_str)
+        selected_match = st.session_state['live_matches'][selected_idx]
+        
+        # Parse match details
+        match_text = selected_match['Match']
+        score_text = selected_match['Score']
+        status_text = selected_match['Status']
+        
+        # Extract team names and scores
+        teams = match_text.split(' vs ')
+        scores = score_text.split(' - ')
+        
+        if len(teams) == 2 and len(scores) == 2:
+            live_team_a = teams[0].strip()
+            live_team_b = teams[1].strip()
+            try:
+                live_score_a = int(scores[0].strip())
+                live_score_b = int(scores[1].strip())
+            except:
+                live_score_a = 0
+                live_score_b = 0
+            
+            # Extract elapsed time from status
+            import re
+            time_match = re.search(r'\((\d+)\'', status_text)
+            live_elapsed = int(time_match.group(1)) if time_match else 45
+            
+            # Display selected match info
+            st.info(f"**Selected:** {live_team_a} {live_score_a} - {live_score_b} {live_team_b} | {status_text}")
+            
+            # Check if teams are in our database
+            if live_team_a not in team_stats or live_team_b not in team_stats:
+                st.warning(f"⚠️ One or both teams not found in our database. Available teams: {', '.join(team_names[:10])}...")
+                st.info("💡 You can use manual entry below to analyze any match.")
+        else:
+            st.error("Unable to parse match details. Please use manual entry.")
+    else:
+        st.info("👆 Click 'Fetch Live Matches' to see ongoing games, or enter match details manually below.")
+    
+    st.markdown("---")
+    st.markdown("### ✏️ Manual Entry (or Override)")
+    
     live_match_col1, live_match_col2 = st.columns(2)
     
     with live_match_col1:
-        live_team_a = st.selectbox("Live Match - Team A", team_names, key="live_team_a")
+        live_team_a = st.selectbox("Team A", team_names, key="live_team_a")
         live_score_a = st.number_input("Team A Score", min_value=0, max_value=20, value=1, key="live_score_a")
     
     with live_match_col2:
-        live_team_b = st.selectbox("Live Match - Team B", team_names, key="live_team_b")
+        live_team_b = st.selectbox("Team B", team_names, key="live_team_b")
         live_score_b = st.number_input("Team B Score", min_value=0, max_value=20, value=0, key="live_score_b")
     
     live_elapsed = st.slider("Match Time (minutes)", min_value=0, max_value=90, value=67, step=1)
