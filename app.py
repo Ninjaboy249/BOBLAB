@@ -1339,46 +1339,46 @@ with st.expander("⚙️ Adjust Team Statistics", expanded=False):
     sim_col1, sim_col2 = st.columns(2)
     
     with sim_col1:
-        st.markdown(f"**{team_a} Adjustments**")
+        st.markdown(f"**{team_a} Statistics**")
         team_a_form_slider = st.slider(
             f"{team_a} Recent Form",
             min_value=0.0,
             max_value=1.0,
-            value=0.0,
+            value=team_stats[team_a]["recent_form"] if team_a in team_stats else 0.5,
             step=0.01,
-            help="Adjust recent form (0 = poor, 1 = excellent). Start from 0 for fair comparison."
+            help="Adjust recent form (0 = poor, 1 = excellent)"
         )
         team_a_goals_slider = st.slider(
-            f"{team_a} Goals Scored",
+            f"{team_a} Avg Goals",
             min_value=0.0,
             max_value=5.0,
-            value=0.0,
+            value=team_stats[team_a]["goal_avg"] if team_a in team_stats else 1.5,
             step=0.1,
-            help="Adjust average goals per match. Start from 0 for fair comparison."
+            help="Adjust average goals per match"
         )
     
     with sim_col2:
-        st.markdown(f"**{team_b} Adjustments**")
+        st.markdown(f"**{team_b} Statistics**")
         team_b_form_slider = st.slider(
             f"{team_b} Recent Form",
             min_value=0.0,
             max_value=1.0,
-            value=0.0,
+            value=team_stats[team_b]["recent_form"] if team_b in team_stats else 0.5,
             step=0.01,
-            help="Adjust recent form (0 = poor, 1 = excellent). Start from 0 for fair comparison."
+            help="Adjust recent form (0 = poor, 1 = excellent)"
         )
         team_b_goals_slider = st.slider(
-            f"{team_b} Goals Scored",
+            f"{team_b} Avg Goals",
             min_value=0.0,
             max_value=5.0,
-            value=0.0,
+            value=team_stats[team_b]["goal_avg"] if team_b in team_stats else 1.5,
             step=0.1,
-            help="Adjust average goals per match. Start from 0 for fair comparison."
+            help="Adjust average goals per match"
         )
     
     neutral_slider = st.checkbox("Neutral Venue (Simulator)", value=neutral, key="neutral_sim")
     
-    st.info("💡 **Note:** Team A and Team B positions are neutral. The model predicts based on team statistics, not position. Uncheck 'Neutral Venue' to give Team A home advantage.")
+    st.info("💡 **How it works:** The model uses feature differences (Team A - Team B) to predict outcomes. Adjust sliders to see how changing team stats affects predictions.")
     
     # Calculate simulated probabilities
     if team_a != team_b and team_a in team_stats and team_b in team_stats:
@@ -1405,6 +1405,26 @@ with st.expander("⚙️ Adjust Team Statistics", expanded=False):
         
         sim_proba = model.predict_proba(sim_row)[0]
         sim_p_a, sim_p_draw, sim_p_b = float(sim_proba[0]), float(sim_proba[1]), float(sim_proba[2])
+        
+        # Display feature differences (what the model actually uses)
+        st.markdown("### 🔍 Feature Differences (Model Input)")
+        st.caption("The model predicts based on these differences:")
+        
+        diff_col1, diff_col2, diff_col3 = st.columns(3)
+        
+        winrate_diff = a_sim["winrate"] - b_sim["winrate"]
+        goals_diff = a_sim["goal_avg"] - b_sim["goal_avg"]
+        form_diff = a_sim["recent_form"] - b_sim["recent_form"]
+        
+        with diff_col1:
+            st.metric("Win Rate Diff", f"{winrate_diff:+.3f}",
+                     help=f"{team_a}: {a_sim['winrate']:.3f} - {team_b}: {b_sim['winrate']:.3f}")
+        with diff_col2:
+            st.metric("Goals Diff", f"{goals_diff:+.2f}",
+                     help=f"{team_a}: {a_sim['goal_avg']:.2f} - {team_b}: {b_sim['goal_avg']:.2f}")
+        with diff_col3:
+            st.metric("Form Diff", f"{form_diff:+.2f}",
+                     help=f"{team_a}: {a_sim['recent_form']:.2f} - {team_b}: {b_sim['recent_form']:.2f}")
         
         # Display simulated probabilities
         st.markdown("### 📊 Simulated Probabilities")
