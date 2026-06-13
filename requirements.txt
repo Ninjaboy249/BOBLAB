@@ -1,6 +1,7 @@
 beautifulsoup4
 joblib
 pandas
+plotly
 requests
 scikit-learn
 streamlit

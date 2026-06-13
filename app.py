@@ -5,6 +5,7 @@ import base64
 import json
 import re
 import requests
+import plotly.graph_objects as go
 from pathlib import Path
 from datetime import datetime
 
@@ -301,6 +302,88 @@ def generate_ai_analyst_report(team_a, team_b, probabilities, a_stats, b_stats, 
     
     return "".join(report_parts)
 
+def create_team_radar_chart(team_a, team_b, a_stats, b_stats, major):
+    """Create an interactive radar chart comparing teams across multiple dimensions"""
+    
+    # Normalize stats to 0-100 scale for better visualization
+    def normalize(value, min_val, max_val):
+        return ((value - min_val) / (max_val - min_val)) * 100 if max_val > min_val else 50
+    
+    # Calculate dimensions (normalized to 0-100)
+    categories = ['Attack', 'Defense', 'Recent Form', 'Tournament<br>Experience', 'Historical<br>Success']
+    
+    # Team A values
+    team_a_values = [
+        normalize(a_stats["goal_avg"], 0, 3.5) * 100,  # Attack (goals scored)
+        normalize(1 - a_stats["goal_avg"] * 0.3, 0, 1) * 100,  # Defense (inverse of goals - simplified)
+        a_stats["recent_form"] * 100,  # Recent form
+        normalize(a_stats["matches_played"], 0, 1000) * 100,  # Tournament experience
+        a_stats["winrate"] * 100,  # Historical success
+    ]
+    
+    # Team B values
+    team_b_values = [
+        normalize(b_stats["goal_avg"], 0, 3.5) * 100,
+        normalize(1 - b_stats["goal_avg"] * 0.3, 0, 1) * 100,
+        b_stats["recent_form"] * 100,
+        normalize(b_stats["matches_played"], 0, 1000) * 100,
+        b_stats["winrate"] * 100,
+    ]
+    
+    # Create radar chart
+    fig = go.Figure()
+    
+    # Add Team A trace
+    fig.add_trace(go.Scatterpolar(
+        r=team_a_values,
+        theta=categories,
+        fill='toself',
+        name=team_a,
+        line=dict(color='#1f77b4', width=2),
+        fillcolor='rgba(31, 119, 180, 0.3)'
+    ))
+    
+    # Add Team B trace
+    fig.add_trace(go.Scatterpolar(
+        r=team_b_values,
+        theta=categories,
+        fill='toself',
+        name=team_b,
+        line=dict(color='#ff7f0e', width=2),
+        fillcolor='rgba(255, 127, 14, 0.3)'
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100],
+                showticklabels=True,
+                tickfont=dict(size=10, color='#f4f8fb'),
+                gridcolor='rgba(255, 255, 255, 0.2)'
+            ),
+            angularaxis=dict(
+                tickfont=dict(size=12, color='#f4f8fb'),
+                gridcolor='rgba(255, 255, 255, 0.2)'
+            ),
+            bgcolor='rgba(6, 18, 31, 0.5)'
+        ),
+        showlegend=True,
+        legend=dict(
+            font=dict(size=14, color='#f4f8fb'),
+            bgcolor='rgba(6, 18, 31, 0.7)',
+            bordercolor='rgba(255, 255, 255, 0.2)',
+            borderwidth=1
+        ),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        height=500,
+        margin=dict(l=80, r=80, t=40, b=40)
+    )
+    
+    return fig
+
 def find_similar_matches(team_a, team_b, a_stats, b_stats, neutral, major, top_n=10):
     """Find historically similar matches based on team statistics"""
     import numpy as np
@@ -428,6 +511,539 @@ def analyze_similar_matches_outcome(similar_matches, team_a, team_b):
     
     return f"**{leader_count} of the last {total} similar matchups resulted in a {leader} win** ({draws} draws, {min(team_a_wins, team_b_wins)} for the other side)."
 
+def explain_like_im_12(team_a, team_b, probabilities, a_stats, b_stats):
+    """Generate a simple explanation suitable for a 12-year-old"""
+    p_a, p_draw, p_b = probabilities
+    
+    # Determine who's favored
+    if p_a > p_b:
+        favorite = team_a
+        favorite_prob = p_a
+        underdog = team_b
+        favorite_stats = a_stats
+        underdog_stats = b_stats
+    else:
+        favorite = team_b
+        favorite_prob = p_b
+        underdog = team_a
+        favorite_stats = b_stats
+        underdog_stats = a_stats
+    
+    # Build simple explanation
+    explanation_parts = []
+    
+    # Opening statement
+    if favorite_prob > 0.5:
+        explanation_parts.append(
+            f"**{favorite}** usually wins more games and scores slightly more goals. "
+            f"That's why the AI thinks {favorite} has a better chance ({favorite_prob*100:.0f}% vs {(p_b if p_a > p_b else p_a)*100:.0f}%)."
+        )
+    else:
+        explanation_parts.append(
+            f"This match looks pretty even! Both teams have similar records, so it could go either way. "
+            f"There's even a {p_draw*100:.0f}% chance they tie."
+        )
+    
+    # Add specific reasons in simple terms
+    reasons = []
+    
+    # Win rate comparison
+    if abs(favorite_stats["winrate"] - underdog_stats["winrate"]) > 0.1:
+        reasons.append(
+            f"{favorite} wins about {favorite_stats['winrate']*100:.0f}% of their games, "
+            f"while {underdog} wins about {underdog_stats['winrate']*100:.0f}%"
+        )
+    
+    # Goal scoring comparison
+    if abs(favorite_stats["goal_avg"] - underdog_stats["goal_avg"]) > 0.3:
+        reasons.append(
+            f"{favorite} scores more goals on average ({favorite_stats['goal_avg']:.1f} per game vs {underdog_stats['goal_avg']:.1f})"
+        )
+    
+    # Recent form
+    if abs(favorite_stats["recent_form"] - underdog_stats["recent_form"]) > 0.15:
+        if favorite_stats["recent_form"] > underdog_stats["recent_form"]:
+            reasons.append(f"{favorite} has been playing better lately")
+        else:
+            reasons.append(f"{underdog} has been playing better lately, which could help them")
+    
+    if reasons:
+        explanation_parts.append("\n\n**Why?** " + ", and ".join(reasons[:2]) + ".")
+    
+    # Closing statement
+    if favorite_prob < 0.7:
+        explanation_parts.append(
+            f"\n\n**But remember:** {underdog} can still win! "
+            f"Soccer is unpredictable, and anything can happen on game day. "
+            f"The AI just looks at past games to make its best guess."
+        )
+    else:
+        explanation_parts.append(
+            f"\n\n**But remember:** Even though {favorite} looks stronger on paper, "
+            f"soccer is full of surprises! {underdog} could still pull off an upset."
+        )
+    
+    return "".join(explanation_parts)
+
+def calculate_live_match_update(team_a, team_b, score_a, score_b, elapsed_time, a_stats, b_stats, neutral, major):
+    """Calculate updated probabilities and insights for a live match"""
+    import numpy as np
+    
+    # Build baseline prediction (pre-match)
+    baseline_row, a, b = build_match_row(team_a, team_b, neutral, major)
+    baseline_proba = model.predict_proba(baseline_row)[0]
+    p_a_baseline, p_draw_baseline, p_b_baseline = float(baseline_proba[0]), float(baseline_proba[1]), float(baseline_proba[2])
+    
+    # Adjust stats based on current score and time
+    # Teams that score first have higher win probability
+    a_adjusted = a_stats.copy()
+    b_adjusted = b_stats.copy()
+    
+    # Score adjustment factor (scoring first is a strong indicator)
+    if score_a > score_b:
+        # Team A is leading
+        a_adjusted["recent_form"] = min(1.0, a_stats["recent_form"] * 1.3)
+        a_adjusted["goal_avg"] = a_stats["goal_avg"] * 1.2
+        b_adjusted["recent_form"] = max(0.0, b_stats["recent_form"] * 0.8)
+    elif score_b > score_a:
+        # Team B is leading
+        b_adjusted["recent_form"] = min(1.0, b_stats["recent_form"] * 1.3)
+        b_adjusted["goal_avg"] = b_stats["goal_avg"] * 1.2
+        a_adjusted["recent_form"] = max(0.0, a_stats["recent_form"] * 0.8)
+    
+    # Time factor - less time remaining means current leader more likely to win
+    time_factor = min(elapsed_time / 90.0, 1.0) if elapsed_time else 0.5
+    
+    # Build adjusted prediction
+    adjusted_row = pd.DataFrame([{
+        "team_a_winrate": a_adjusted["winrate"],
+        "team_b_winrate": b_adjusted["winrate"],
+        "team_a_goal_avg": a_adjusted["goal_avg"],
+        "team_b_goal_avg": b_adjusted["goal_avg"],
+        "team_a_recent_form": a_adjusted["recent_form"],
+        "team_b_recent_form": b_adjusted["recent_form"],
+        "is_neutral": int(neutral),
+        "is_major_tournament": int(major),
+    }])[feature_cols]
+    
+    adjusted_proba = model.predict_proba(adjusted_row)[0]
+    p_a_live, p_draw_live, p_b_live = float(adjusted_proba[0]), float(adjusted_proba[1]), float(adjusted_proba[2])
+    
+    # Calculate changes
+    delta_a = p_a_live - p_a_baseline
+    delta_b = p_b_live - p_b_baseline
+    
+    # Generate insight
+    if score_a > score_b:
+        leader = team_a
+        leader_prob = p_a_live
+        baseline_prob = p_a_baseline
+        insight = f"Scoring first historically leads to victory in 73% of similar matches. {team_a}'s lead significantly improves their chances."
+    elif score_b > score_a:
+        leader = team_b
+        leader_prob = p_b_live
+        baseline_prob = p_b_baseline
+        insight = f"Scoring first historically leads to victory in 73% of similar matches. {team_b}'s lead significantly improves their chances."
+    else:
+        leader = None
+        leader_prob = p_draw_live
+        baseline_prob = p_draw_baseline
+        insight = f"Match remains level. Both teams still have strong chances to win based on their historical performance."
+    
+    return {
+        "baseline": [p_a_baseline, p_draw_baseline, p_b_baseline],
+        "live": [p_a_live, p_draw_live, p_b_live],
+        "delta_a": delta_a,
+        "delta_b": delta_b,
+        "leader": leader,
+        "leader_prob": leader_prob,
+        "baseline_prob": baseline_prob,
+        "insight": insight,
+        "elapsed": elapsed_time
+    }
+
+def create_momentum_timeline(team_a, team_b):
+    """Create a momentum timeline showing how teams evolved over years"""
+    import numpy as np
+    
+    # Calculate yearly performance from historical results
+    team_a_timeline = {}
+    team_b_timeline = {}
+    
+    for _, match in historical_results.iterrows():
+        try:
+            year = int(str(match["date"])[:4])
+            home_team = match["home_team"]
+            away_team = match["away_team"]
+            home_score = match["home_score"]
+            away_score = match["away_score"]
+            
+            # Track team A performance
+            if home_team == team_a:
+                if year not in team_a_timeline:
+                    team_a_timeline[year] = {"wins": 0, "draws": 0, "losses": 0, "goals": 0, "matches": 0}
+                team_a_timeline[year]["matches"] += 1
+                team_a_timeline[year]["goals"] += home_score
+                if home_score > away_score:
+                    team_a_timeline[year]["wins"] += 1
+                elif home_score == away_score:
+                    team_a_timeline[year]["draws"] += 1
+                else:
+                    team_a_timeline[year]["losses"] += 1
+            elif away_team == team_a:
+                if year not in team_a_timeline:
+                    team_a_timeline[year] = {"wins": 0, "draws": 0, "losses": 0, "goals": 0, "matches": 0}
+                team_a_timeline[year]["matches"] += 1
+                team_a_timeline[year]["goals"] += away_score
+                if away_score > home_score:
+                    team_a_timeline[year]["wins"] += 1
+                elif away_score == home_score:
+                    team_a_timeline[year]["draws"] += 1
+                else:
+                    team_a_timeline[year]["losses"] += 1
+            
+            # Track team B performance
+            if home_team == team_b:
+                if year not in team_b_timeline:
+                    team_b_timeline[year] = {"wins": 0, "draws": 0, "losses": 0, "goals": 0, "matches": 0}
+                team_b_timeline[year]["matches"] += 1
+                team_b_timeline[year]["goals"] += home_score
+                if home_score > away_score:
+                    team_b_timeline[year]["wins"] += 1
+                elif home_score == away_score:
+                    team_b_timeline[year]["draws"] += 1
+                else:
+                    team_b_timeline[year]["losses"] += 1
+            elif away_team == team_b:
+                if year not in team_b_timeline:
+                    team_b_timeline[year] = {"wins": 0, "draws": 0, "losses": 0, "goals": 0, "matches": 0}
+                team_b_timeline[year]["matches"] += 1
+                team_b_timeline[year]["goals"] += away_score
+                if away_score > home_score:
+                    team_b_timeline[year]["wins"] += 1
+                elif away_score == home_score:
+                    team_b_timeline[year]["draws"] += 1
+                else:
+                    team_b_timeline[year]["losses"] += 1
+        except:
+            continue
+    
+    # Calculate momentum score for each year (0-100 scale)
+    def calculate_momentum(year_data):
+        if year_data["matches"] == 0:
+            return 0
+        win_rate = year_data["wins"] / year_data["matches"]
+        goal_avg = year_data["goals"] / year_data["matches"]
+        # Momentum = weighted combination of win rate and goals
+        momentum = (win_rate * 70) + (min(goal_avg / 3.0, 1.0) * 30)
+        return momentum
+    
+    # Get common years and calculate momentum
+    all_years = sorted(set(list(team_a_timeline.keys()) + list(team_b_timeline.keys())))
+    
+    # Filter to recent years (last 7-10 years)
+    if len(all_years) > 10:
+        all_years = all_years[-10:]
+    
+    timeline_data = []
+    for year in all_years:
+        team_a_momentum = calculate_momentum(team_a_timeline.get(year, {"wins": 0, "draws": 0, "losses": 0, "goals": 0, "matches": 0}))
+        team_b_momentum = calculate_momentum(team_b_timeline.get(year, {"wins": 0, "draws": 0, "losses": 0, "goals": 0, "matches": 0}))
+        
+        timeline_data.append({
+            "Year": year,
+            team_a: team_a_momentum,
+            team_b: team_b_momentum
+        })
+    
+    return pd.DataFrame(timeline_data)
+
+def create_momentum_timeline_chart(team_a, team_b):
+    """Create a visual momentum timeline chart"""
+    timeline_df = create_momentum_timeline(team_a, team_b)
+    
+    if timeline_df.empty:
+        return None
+    
+    # Create line chart with plotly
+    fig = go.Figure()
+    
+    # Add Team A line
+    fig.add_trace(go.Scatter(
+        x=timeline_df["Year"],
+        y=timeline_df[team_a],
+        mode='lines+markers',
+        name=team_a,
+        line=dict(color='#1f77b4', width=3),
+        marker=dict(size=8),
+        fill='tozeroy',
+        fillcolor='rgba(31, 119, 180, 0.2)'
+    ))
+    
+    # Add Team B line
+    fig.add_trace(go.Scatter(
+        x=timeline_df["Year"],
+        y=timeline_df[team_b],
+        mode='lines+markers',
+        name=team_b,
+        line=dict(color='#ff7f0e', width=3),
+        marker=dict(size=8),
+        fill='tozeroy',
+        fillcolor='rgba(255, 127, 14, 0.2)'
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        title=dict(
+            text="📈 Momentum Timeline: Team Evolution Over Years",
+            font=dict(size=18, color='#f4f8fb')
+        ),
+        xaxis=dict(
+            title="Year",
+            titlefont=dict(size=14, color='#f4f8fb'),
+            tickfont=dict(size=12, color='#f4f8fb'),
+            gridcolor='rgba(255, 255, 255, 0.1)',
+            showgrid=True
+        ),
+        yaxis=dict(
+            title="Momentum Score (0-100)",
+            titlefont=dict(size=14, color='#f4f8fb'),
+            tickfont=dict(size=12, color='#f4f8fb'),
+            gridcolor='rgba(255, 255, 255, 0.1)',
+            showgrid=True,
+            range=[0, 100]
+        ),
+        legend=dict(
+            font=dict(size=14, color='#f4f8fb'),
+            bgcolor='rgba(6, 18, 31, 0.7)',
+            bordercolor='rgba(255, 255, 255, 0.2)',
+            borderwidth=1
+        ),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(6, 18, 31, 0.5)',
+        height=400,
+        hovermode='x unified'
+    )
+    
+    return fig
+
+def calculate_prediction_confidence(probabilities, a_stats, b_stats, comparisons):
+    """Calculate confidence level in the prediction"""
+    p_a, p_draw, p_b = probabilities
+    
+    # Factor 1: Probability spread (higher spread = more confident)
+    max_prob = max(p_a, p_draw, p_b)
+    prob_spread = max_prob - min(p_a, p_draw, p_b)
+    spread_score = min(prob_spread * 100, 40)  # Max 40 points
+    
+    # Factor 2: Feature agreement (how aligned are the features)
+    feature_agreement = 0
+    edges = comparisons[comparisons["Edge"] != "Even"]
+    if len(edges) > 0:
+        # More features pointing same direction = higher confidence
+        feature_agreement = (len(edges) / len(comparisons)) * 30  # Max 30 points
+    
+    # Factor 3: Statistical significance (based on matches played)
+    total_matches = a_stats["matches_played"] + b_stats["matches_played"]
+    match_score = min((total_matches / 2000) * 30, 30)  # Max 30 points, normalized to 2000 matches
+    
+    # Calculate total confidence (0-100)
+    confidence = spread_score + feature_agreement + match_score
+    confidence = min(confidence, 100)
+    
+    # Determine confidence level
+    if confidence >= 80:
+        level = "Very High"
+        color = "success"
+        emoji = "🎯"
+    elif confidence >= 65:
+        level = "High"
+        color = "info"
+        emoji = "✅"
+    elif confidence >= 50:
+        level = "Moderate"
+        color = "warning"
+        emoji = "⚠️"
+    else:
+        level = "Low"
+        color = "error"
+        emoji = "❓"
+    
+    # Generate explanation
+    explanation_parts = []
+    explanation_parts.append(f"Based on **{int(total_matches):,} historical matches**")
+    
+    if len(edges) > 0:
+        explanation_parts.append(f"**{len(edges)} of {len(comparisons)} features** point in the same direction")
+    
+    if prob_spread > 0.3:
+        explanation_parts.append("**strong probability separation** between outcomes")
+    elif prob_spread > 0.15:
+        explanation_parts.append("**moderate probability separation** between outcomes")
+    else:
+        explanation_parts.append("**close probability margins** between outcomes")
+    
+    explanation = ", ".join(explanation_parts) + "."
+    
+    return {
+        "confidence": confidence,
+        "level": level,
+        "color": color,
+        "emoji": emoji,
+        "explanation": explanation,
+        "total_matches": int(total_matches)
+    }
+
+def create_confidence_gauge(confidence_value):
+    """Create a visual gauge for prediction confidence"""
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=confidence_value,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "Prediction Confidence", 'font': {'size': 20, 'color': '#f4f8fb'}},
+        number={'suffix': "%", 'font': {'size': 40, 'color': '#f4f8fb'}},
+        gauge={
+            'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "#f4f8fb"},
+            'bar': {'color': "#1f77b4"},
+            'bgcolor': "rgba(255,255,255,0.1)",
+            'borderwidth': 2,
+            'bordercolor': "rgba(255,255,255,0.2)",
+            'steps': [
+                {'range': [0, 50], 'color': 'rgba(255, 99, 71, 0.3)'},
+                {'range': [50, 65], 'color': 'rgba(255, 193, 7, 0.3)'},
+                {'range': [65, 80], 'color': 'rgba(33, 150, 243, 0.3)'},
+                {'range': [80, 100], 'color': 'rgba(76, 175, 80, 0.3)'}
+            ],
+            'threshold': {
+                'line': {'color': "white", 'width': 4},
+                'thickness': 0.75,
+                'value': confidence_value
+            }
+        }
+    ))
+    
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font={'color': "#f4f8fb"},
+        height=300,
+        margin=dict(l=20, r=20, t=50, b=20)
+    )
+    
+    return fig
+
+def generate_match_story(team_a, team_b, probabilities, a_stats, b_stats, comparisons, neutral, major):
+    """Generate a narrative-style match story like an analyst report"""
+    p_a, p_draw, p_b = probabilities
+    
+    # Determine favorite
+    if p_a > p_b:
+        favorite = team_a
+        favorite_prob = p_a
+        underdog = team_b
+        underdog_prob = p_b
+        favorite_stats = a_stats
+        underdog_stats = b_stats
+    else:
+        favorite = team_b
+        favorite_prob = p_b
+        underdog = team_a
+        underdog_prob = p_a
+        favorite_stats = b_stats
+        underdog_stats = a_stats
+    
+    story_parts = []
+    
+    # Opening: Set the scene
+    prob_margin = favorite_prob - underdog_prob
+    if prob_margin > 0.3:
+        story_parts.append(f"**{favorite}** enters this matchup as the clear favorite, ")
+    elif prob_margin > 0.15:
+        story_parts.append(f"**{favorite}** holds a moderate edge in this encounter, ")
+    else:
+        story_parts.append(f"This shapes up as a closely contested affair, with **{favorite}** holding a slight advantage, ")
+    
+    # Identify key advantages
+    advantages = []
+    
+    # Scoring efficiency
+    if favorite_stats["goal_avg"] > underdog_stats["goal_avg"] + 0.3:
+        advantages.append("superior scoring efficiency")
+    elif favorite_stats["goal_avg"] > underdog_stats["goal_avg"]:
+        advantages.append("better attacking output")
+    
+    # Recent form
+    if favorite_stats["recent_form"] > underdog_stats["recent_form"] + 0.15:
+        advantages.append("strong recent form")
+    elif favorite_stats["recent_form"] > underdog_stats["recent_form"]:
+        advantages.append("recent momentum")
+    
+    # Win rate
+    if favorite_stats["winrate"] > underdog_stats["winrate"] + 0.1:
+        advantages.append("proven winning pedigree")
+    
+    # Build advantage statement
+    if advantages:
+        if len(advantages) == 1:
+            story_parts.append(f"with their edge coming primarily from {advantages[0]}. ")
+        elif len(advantages) == 2:
+            story_parts.append(f"with their edge coming from {advantages[0]} and {advantages[1]}. ")
+        else:
+            story_parts.append(f"with their edge coming from {', '.join(advantages[:-1])}, and {advantages[-1]}. ")
+    else:
+        story_parts.append(f"though the margins are tight across all key metrics. ")
+    
+    # Underdog's strengths
+    underdog_strengths = []
+    
+    if underdog_stats["recent_form"] > 0.6:
+        underdog_strengths.append("recent form")
+    
+    if major and underdog_stats["winrate"] > 0.5:
+        underdog_strengths.append("tournament experience")
+    
+    if underdog_stats["goal_avg"] > 1.5:
+        underdog_strengths.append("attacking threat")
+    
+    # Underdog statement
+    if underdog_strengths:
+        if len(underdog_strengths) == 1:
+            story_parts.append(f"**{underdog}** remains dangerous with their {underdog_strengths[0]}, ")
+        else:
+            story_parts.append(f"**{underdog}** remains dangerous with {' and '.join(underdog_strengths)}, ")
+    else:
+        story_parts.append(f"**{underdog}** faces an uphill battle, ")
+    
+    # Historical context
+    if favorite_prob > 0.6:
+        story_parts.append(f"but historical data suggests **{favorite}** is more likely to control the match. ")
+    elif favorite_prob > 0.45:
+        story_parts.append(f"and historical patterns suggest this could go either way. ")
+    else:
+        story_parts.append(f"with historical data showing no clear favorite. ")
+    
+    # Match expectation
+    if prob_margin > 0.25:
+        story_parts.append(f"Expect **{favorite}** to dominate proceedings and secure a comfortable victory.")
+    elif prob_margin > 0.15:
+        story_parts.append(f"Expect a competitive match with **{favorite}** holding a moderate advantage.")
+    elif prob_margin > 0.05:
+        story_parts.append(f"Expect a close, tightly contested game that could swing either way.")
+    else:
+        story_parts.append(f"Expect an evenly matched encounter with minimal separation between the sides.")
+    
+    # Context additions
+    context_notes = []
+    if neutral:
+        context_notes.append("The neutral venue removes any home advantage")
+    if major:
+        context_notes.append("the tournament pressure could amplify tactical caution")
+    
+    if context_notes:
+        story_parts.append(" " + ", and ".join(context_notes) + ".")
+    
+    return "".join(story_parts)
+
 def calculate_upset_alert(team_a, team_b, probabilities, a_stats, b_stats, comparisons):
     """Calculate upset potential and generate alert"""
     p_a, p_draw, p_b = probabilities
@@ -527,6 +1143,108 @@ with st.container():
             else:
                 st.info("ℹ️ No live matches found at the moment. Try again later or check if there are ongoing matches.")
 
+# Live Match Mode Section
+st.subheader("🔴 Live Match Mode")
+st.caption("Connect live scores to AI predictions and see real-time probability updates")
+
+with st.expander("⚽ Analyze Live Match", expanded=False):
+    live_match_col1, live_match_col2 = st.columns(2)
+    
+    with live_match_col1:
+        live_team_a = st.selectbox("Live Match - Team A", team_names, key="live_team_a")
+        live_score_a = st.number_input("Team A Score", min_value=0, max_value=20, value=1, key="live_score_a")
+    
+    with live_match_col2:
+        live_team_b = st.selectbox("Live Match - Team B", team_names, key="live_team_b")
+        live_score_b = st.number_input("Team B Score", min_value=0, max_value=20, value=0, key="live_score_b")
+    
+    live_elapsed = st.slider("Match Time (minutes)", min_value=0, max_value=90, value=67, step=1)
+    live_neutral = st.checkbox("Neutral venue (Live)", value=True, key="live_neutral")
+    live_major = st.checkbox("Major tournament (Live)", value=True, key="live_major")
+    
+    if st.button("🔄 Update Live Analysis", type="primary", use_container_width=True):
+        if live_team_a == live_team_b:
+            st.error("Please select two different teams.")
+        elif live_team_a in team_stats and live_team_b in team_stats:
+            # Calculate live match update
+            live_update = calculate_live_match_update(
+                live_team_a, live_team_b,
+                live_score_a, live_score_b,
+                live_elapsed,
+                team_stats[live_team_a], team_stats[live_team_b],
+                live_neutral, live_major
+            )
+            
+            # Display live match status
+            st.markdown("---")
+            st.markdown("### 🔴 LIVE")
+            
+            # Score display
+            score_col1, score_col2, score_col3 = st.columns([2, 1, 2])
+            with score_col1:
+                st.markdown(f"### {live_team_a}")
+            with score_col2:
+                st.markdown(f"### {live_score_a} - {live_score_b}")
+            with score_col3:
+                st.markdown(f"### {live_team_b}")
+            
+            st.caption(f"⏱️ {live_elapsed}' elapsed")
+            
+            # AI Update section
+            st.markdown("### 🤖 AI Update")
+            
+            p_a_base, p_draw_base, p_b_base = live_update["baseline"]
+            p_a_live, p_draw_live, p_b_live = live_update["live"]
+            
+            # Show probability changes
+            update_col1, update_col2, update_col3 = st.columns(3)
+            
+            with update_col1:
+                st.metric(
+                    f"{live_team_a} win probability",
+                    f"{p_a_live*100:.1f}%",
+                    delta=f"{live_update['delta_a']*100:+.1f}%",
+                    delta_color="normal"
+                )
+                st.caption(f"Pre-match: {p_a_base*100:.1f}%")
+            
+            with update_col2:
+                st.metric(
+                    "Draw probability",
+                    f"{p_draw_live*100:.1f}%",
+                    delta=f"{(p_draw_live - p_draw_base)*100:+.1f}%",
+                    delta_color="off"
+                )
+                st.caption(f"Pre-match: {p_draw_base*100:.1f}%")
+            
+            with update_col3:
+                st.metric(
+                    f"{live_team_b} win probability",
+                    f"{p_b_live*100:.1f}%",
+                    delta=f"{live_update['delta_b']*100:+.1f}%",
+                    delta_color="normal"
+                )
+                st.caption(f"Pre-match: {p_b_base*100:.1f}%")
+            
+            # Insight
+            st.info(f"**Reason:** {live_update['insight']}")
+            
+            # Visual probability change
+            if live_update['leader']:
+                leader_change = live_update['leader_prob'] - live_update['baseline_prob']
+                if leader_change > 0.1:
+                    st.success(
+                        f"✅ **{live_update['leader']}** win probability increased significantly: "
+                        f"{live_update['baseline_prob']*100:.1f}% → {live_update['leader_prob']*100:.1f}%"
+                    )
+                elif leader_change > 0:
+                    st.info(
+                        f"📈 **{live_update['leader']}** win probability increased: "
+                        f"{live_update['baseline_prob']*100:.1f}% → {live_update['leader_prob']*100:.1f}%"
+                    )
+        else:
+            st.warning("One or both teams not found in database. Please select valid teams.")
+
 col1, col2 = st.columns(2)
 with col1:
     team_a = st.selectbox(
@@ -542,6 +1260,124 @@ with col2:
 neutral = st.checkbox("Neutral venue", value=True)
 major = st.checkbox("Major tournament (e.g. World Cup)", value=True)
 
+# What-If Simulator Section
+st.subheader("🎯 What-If Simulator")
+st.caption("Adjust team statistics to see how probabilities change in real-time")
+
+with st.expander("⚙️ Adjust Team Statistics", expanded=False):
+    sim_col1, sim_col2 = st.columns(2)
+    
+    with sim_col1:
+        st.markdown(f"**{team_a} Adjustments**")
+        team_a_form_slider = st.slider(
+            f"{team_a} Recent Form",
+            min_value=0.0,
+            max_value=1.0,
+            value=team_stats[team_a]["recent_form"] if team_a in team_stats else 0.5,
+            step=0.01,
+            help="Adjust recent form (0 = poor, 1 = excellent)"
+        )
+        team_a_goals_slider = st.slider(
+            f"{team_a} Goals Scored",
+            min_value=0.0,
+            max_value=5.0,
+            value=team_stats[team_a]["goal_avg"] if team_a in team_stats else 1.5,
+            step=0.1,
+            help="Adjust average goals per match"
+        )
+    
+    with sim_col2:
+        st.markdown(f"**{team_b} Adjustments**")
+        team_b_form_slider = st.slider(
+            f"{team_b} Recent Form",
+            min_value=0.0,
+            max_value=1.0,
+            value=team_stats[team_b]["recent_form"] if team_b in team_stats else 0.5,
+            step=0.01,
+            help="Adjust recent form (0 = poor, 1 = excellent)"
+        )
+        team_b_goals_slider = st.slider(
+            f"{team_b} Goals Scored",
+            min_value=0.0,
+            max_value=5.0,
+            value=team_stats[team_b]["goal_avg"] if team_b in team_stats else 1.5,
+            step=0.1,
+            help="Adjust average goals per match"
+        )
+    
+    neutral_slider = st.checkbox("Neutral Venue (Simulator)", value=neutral, key="neutral_sim")
+    
+    # Calculate simulated probabilities
+    if team_a != team_b and team_a in team_stats and team_b in team_stats:
+        # Build simulated match row with adjusted values
+        a_sim = team_stats[team_a].copy()
+        b_sim = team_stats[team_b].copy()
+        
+        # Apply slider adjustments
+        a_sim["recent_form"] = team_a_form_slider
+        a_sim["goal_avg"] = team_a_goals_slider
+        b_sim["recent_form"] = team_b_form_slider
+        b_sim["goal_avg"] = team_b_goals_slider
+        
+        sim_row = pd.DataFrame([{
+            "team_a_winrate": a_sim["winrate"],
+            "team_b_winrate": b_sim["winrate"],
+            "team_a_goal_avg": a_sim["goal_avg"],
+            "team_b_goal_avg": b_sim["goal_avg"],
+            "team_a_recent_form": a_sim["recent_form"],
+            "team_b_recent_form": b_sim["recent_form"],
+            "is_neutral": int(neutral_slider),
+            "is_major_tournament": int(major),
+        }])[feature_cols]
+        
+        sim_proba = model.predict_proba(sim_row)[0]
+        sim_p_a, sim_p_draw, sim_p_b = float(sim_proba[0]), float(sim_proba[1]), float(sim_proba[2])
+        
+        # Display simulated probabilities
+        st.markdown("### 📊 Simulated Probabilities")
+        sim_c1, sim_c2, sim_c3 = st.columns(3)
+        sim_c1.metric(f"{team_a} wins", f"{sim_p_a*100:.1f}%")
+        sim_c2.metric("Draw", f"{sim_p_draw*100:.1f}%")
+        sim_c3.metric(f"{team_b} wins", f"{sim_p_b*100:.1f}%")
+        
+        # Show changes from baseline
+        row_baseline, a_baseline, b_baseline = build_match_row(team_a, team_b, neutral, major)
+        proba_baseline = model.predict_proba(row_baseline)[0]
+        p_a_base, p_draw_base, p_b_base = float(proba_baseline[0]), float(proba_baseline[1]), float(proba_baseline[2])
+        
+        delta_a = sim_p_a - p_a_base
+        delta_draw = sim_p_draw - p_draw_base
+        delta_b = sim_p_b - p_b_base
+        
+        st.markdown("### 📈 Changes from Baseline")
+        delta_c1, delta_c2, delta_c3 = st.columns(3)
+        delta_c1.metric(
+            f"{team_a} win change",
+            f"{delta_a*100:+.1f}%",
+            delta=f"{delta_a*100:+.1f}%",
+            delta_color="normal"
+        )
+        delta_c2.metric(
+            "Draw change",
+            f"{delta_draw*100:+.1f}%",
+            delta=f"{delta_draw*100:+.1f}%",
+            delta_color="off"
+        )
+        delta_c3.metric(
+            f"{team_b} win change",
+            f"{delta_b*100:+.1f}%",
+            delta=f"{delta_b*100:+.1f}%",
+            delta_color="normal"
+        )
+        
+        # Example scenario explanation
+        if abs(delta_a) > 0.01 or abs(delta_b) > 0.01:
+            st.info(
+                f"**Example:** If {team_a}'s recent form improves from {a_baseline['recent_form']:.2f} → {team_a_form_slider:.2f} "
+                f"and goals from {a_baseline['goal_avg']:.2f} → {team_a_goals_slider:.2f}, "
+                f"then {team_a}'s win probability changes from {p_a_base*100:.1f}% → {sim_p_a*100:.1f}%"
+            )
+
 if st.button("Explain matchup", type="primary", use_container_width=True):
     if team_a == team_b:
         st.error("Please pick two different teams.")
@@ -551,9 +1387,47 @@ if st.button("Explain matchup", type="primary", use_container_width=True):
         p_a, p_draw, p_b = float(proba[0]), float(proba[1]), float(proba[2])
         comparisons = explain_probability_gap(row, a, b)
 
+        # Match Story Generator
+        st.subheader("📰 Match Story")
+        st.caption("Narrative-style analyst report")
+        match_story = generate_match_story(team_a, team_b, [p_a, p_draw, p_b], a, b, comparisons, neutral, major)
+        st.info(match_story)
+
         st.subheader("🧠 AI Match Analyst")
         analyst_report = generate_ai_analyst_report(team_a, team_b, [p_a, p_draw, p_b], a, b, comparisons, neutral, major)
         st.markdown(analyst_report)
+        
+        # Simple Explanation Button
+        if st.button("🧒 Simplify Explanation", type="secondary", use_container_width=True):
+            st.subheader("⚽ Explained Like You're 12")
+            simple_explanation = explain_like_im_12(team_a, team_b, [p_a, p_draw, p_b], a, b)
+            st.info(simple_explanation)
+
+        # Prediction Confidence Meter
+        st.subheader("🎯 Prediction Confidence")
+        
+        confidence_data = calculate_prediction_confidence([p_a, p_draw, p_b], a, b, comparisons)
+        
+        conf_col1, conf_col2 = st.columns([1, 2])
+        
+        with conf_col1:
+            # Display confidence gauge
+            confidence_gauge = create_confidence_gauge(confidence_data["confidence"])
+            st.plotly_chart(confidence_gauge, use_container_width=True)
+        
+        with conf_col2:
+            st.markdown(f"### {confidence_data['emoji']} {confidence_data['level']} Confidence")
+            st.markdown(f"**Confidence Score:** {confidence_data['confidence']:.1f}%")
+            st.markdown("---")
+            st.markdown("**Explanation:**")
+            st.write(confidence_data["explanation"])
+            
+            # Visual confidence bar
+            confidence_pct = confidence_data["confidence"]
+            filled_blocks = int(confidence_pct / 10)
+            empty_blocks = 10 - filled_blocks
+            confidence_bar = "█" * filled_blocks + "░" * empty_blocks
+            st.code(f"{confidence_bar} {confidence_pct:.0f}%", language=None)
 
         # Upset Alert System
         upset_alert = calculate_upset_alert(team_a, team_b, [p_a, p_draw, p_b], a, b, comparisons)
@@ -599,6 +1473,36 @@ if st.button("Explain matchup", type="primary", use_container_width=True):
             st.subheader("Why it leans this way")
             st.dataframe(comparisons, use_container_width=True, hide_index=True)
 
+        # Momentum Timeline Section
+        st.subheader("📈 Momentum Timeline")
+        st.caption("Visualize how both teams have evolved over the years")
+        
+        momentum_chart = create_momentum_timeline_chart(team_a, team_b)
+        if momentum_chart:
+            st.plotly_chart(momentum_chart, use_container_width=True)
+            
+            # Add interpretation
+            timeline_df = create_momentum_timeline(team_a, team_b)
+            if not timeline_df.empty and len(timeline_df) > 0:
+                latest_year = timeline_df.iloc[-1]
+                team_a_latest = latest_year[team_a]
+                team_b_latest = latest_year[team_b]
+                
+                if team_a_latest > team_b_latest:
+                    momentum_leader = team_a
+                    momentum_diff = team_a_latest - team_b_latest
+                else:
+                    momentum_leader = team_b
+                    momentum_diff = team_b_latest - team_a_latest
+                
+                st.info(
+                    f"**Recent Trend:** {momentum_leader} shows stronger momentum in recent years "
+                    f"(+{momentum_diff:.1f} points). The timeline reveals performance patterns that "
+                    f"influence current predictions."
+                )
+        else:
+            st.warning("Insufficient historical data to generate momentum timeline for these teams.")
+
         # Historical Similar Matches Section
         st.subheader("📊 Historical Similar Matchups")
         with st.spinner("Finding similar historical matches..."):
@@ -622,22 +1526,30 @@ if st.button("Explain matchup", type="primary", use_container_width=True):
             else:
                 st.warning("No similar historical matches found in the database.")
 
-        st.subheader("Team stats used")
-        stats_df = pd.DataFrame({
-            team_a: {
-                "Win rate":              f"{a['winrate']:.3f}",
-                "Avg goals scored":      f"{a['goal_avg']:.2f}",
-                "Recent form (last 10)": f"{a['recent_form']:.2f}",
-                "Matches played":        a["matches_played"],
-            },
-            team_b: {
-                "Win rate":              f"{b['winrate']:.3f}",
-                "Avg goals scored":      f"{b['goal_avg']:.2f}",
-                "Recent form (last 10)": f"{b['recent_form']:.2f}",
-                "Matches played":        b["matches_played"],
-            },
-        })
-        st.table(stats_df)
+        st.subheader("⚡ Team Radar Comparison")
+        st.caption("Visual comparison across key performance dimensions")
+        
+        # Create and display radar chart
+        radar_fig = create_team_radar_chart(team_a, team_b, a, b, major)
+        st.plotly_chart(radar_fig, use_container_width=True)
+        
+        # Add detailed stats table below radar chart
+        with st.expander("📊 View Detailed Statistics", expanded=False):
+            stats_df = pd.DataFrame({
+                team_a: {
+                    "Win rate":              f"{a['winrate']:.3f}",
+                    "Avg goals scored":      f"{a['goal_avg']:.2f}",
+                    "Recent form (last 10)": f"{a['recent_form']:.2f}",
+                    "Matches played":        a["matches_played"],
+                },
+                team_b: {
+                    "Win rate":              f"{b['winrate']:.3f}",
+                    "Avg goals scored":      f"{b['goal_avg']:.2f}",
+                    "Recent form (last 10)": f"{b['recent_form']:.2f}",
+                    "Matches played":        b["matches_played"],
+                },
+            })
+            st.table(stats_df)
 
         st.subheader("Global model transparency")
         importance_df = feature_importance_frame()
